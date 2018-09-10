@@ -1,0 +1,101 @@
+% nbiot nrs channel estimation 
+% @ziyubiti
+% @20180717
+
+function [H_EST, NoisePowerEst] = NbDLChannelEstimate(enb, cec, rxGrid)
+
+    NRxAnts = size(rxGrid,3); 
+    NTx = enb.NBRefP;
+
+    H_EST = zeros(size(rxGrid,1),size(rxGrid,2),NRxAnts,NTx);  
+    noiseVec = zeros(NRxAnts,NTx);
+    signalVec = zeros(NRxAnts,NTx);
+    
+    for rxANT = 1:NRxAnts
+        for nTxAntLayer = 1:NTx
+
+            nrsref = NbNRS(enb);
+            nrsindices = NbNRSIndices(enb,0,{'1based','sub'});
+            rxnrs = rxGrid(nrsindices);
+
+            Hls = rxnrs./nrsref;
+
+            ls_estimates = ([nrsindices(:,[1 2]) Hls ones(8,1)]).';
+
+            if strcmpi(cec.PilotAverage,'UserDefined')&&(cec.FreqWindow==1)&&(cec.TimeWindow==1)
+                P_EST = ls_estimates;
+                ScalingVec = 0;
+            else
+                [P_EST, ScalingVec]= NbDlPilotAverage(cec,H_EST,ls_estimates);
+            end
+
+            if (~strcmpi(cec.InterpType,'none'))       
+                if strcmpi(cec.InterpWindow,'Centered')               
+                    if ~mod(cec.InterpWinSize,2)
+                        error('lte:error','Window size must be odd for centered window type');
+                    end               
+                    x = floor(cec.InterpWinSize/2);
+                    y = floor(cec.InterpWinSize/2);
+                elseif strcmpi(cec.InterpWindow,'Causal')             
+                    x = 0;
+                    y = cec.InterpWinSize-1;
+                elseif strcmpi(cec.InterpWindow,'Non-causal')              
+                    x = cec.InterpWinSize-1;
+                    y = 0;
+                else
+                    error('lte:error','Channel estimation structure field InterpWindow must be one of the following: Causal,Non-causal,Centred,Centered');
+                end       
+            else
+                x = 0;
+                y = 0;
+            end
+
+
+            sf = 0;  % single sf
+            p_use = P_EST;
+
+            if any(strcmpi(cec.InterpType,{'cubic','linear','natural'}))       
+                vpvec = unique(p_use(4,:));        
+                if (~isempty(p_use))
+                    vps = NbDlCreateEdgeVirtualPilots(p_use(1:3,:));
+                    p_use = [p_use(1:3,:) vps];
+                end        
+            end
+
+            if (~isempty(p_use))
+                if (strcmpi(cec.InterpType,'none'))         
+                    Htemp = zeros(12,14);
+                    p_use_ind = sub2ind(size(Htemp),p_use(1,:),p_use(2,:));
+                    Htemp(p_use_ind) = p_use(3,:);
+                else          
+                    Htemp = griddata(p_use(2,:),p_use(1,:),p_use(3,:),1:14,(1:12)',cec.InterpType);
+                end        
+
+                H_EST(:,:,rxANT,nTxAntLayer) = Htemp;
+            end
+            
+            signalVec(rxANT,nTxAntLayer) = mean(P_EST(3,:).*conj(P_EST(3,:)));
+            
+            noise = ls_estimates(3,~isnan(ls_estimates(3,:))) - P_EST(3,~isnan(P_EST(3,:))); 
+%             noise = sqrt(ScalingVec./(ScalingVec+1)).*noise;
+            
+            if (isempty(noise))
+                noiseVec(rxANT,nTxAntLayer) = NaN;
+            else
+                noiseVec(rxANT,nTxAntLayer) = mean(noise.*conj(noise));
+            end            
+            
+        end
+    end
+    
+    SignalPowerEst = mean(signalVec);
+    NoisePowerEst = mean(noiseVec(~isnan(noiseVec(:))));
+    SinrEst = 10*log10(SignalPowerEst/NoisePowerEst);
+
+end
+
+
+
+
+
+

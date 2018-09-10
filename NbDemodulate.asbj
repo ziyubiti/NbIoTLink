@@ -1,0 +1,60 @@
+% nbiot fft, refine from LTE lib  
+% @ziyubiti
+% @20180626
+
+function reGrid = NbDemodulate(waveform,varargin)
+
+    if (nargin==2)
+      cpFraction = varargin{1};
+    else
+      cpFraction = 0.55;
+    end
+    
+    info = NbiotInfo();
+    samplesPerSubframe=info.SamplingRate*0.001;
+    nFFT=double(info.Nfft);
+    
+    cpLengths=double(info.CyclicPrefixLengths);    
+    cpLengths=cpLengths(1:length(cpLengths)/2);     
+    nSymbols=length(cpLengths);    
+    nSubframes=fix(size(waveform,1)/samplesPerSubframe);        
+ 
+    nRB = 1;
+    firstActiveSC = (nFFT/2)-(nRB*12/2)+1;
+    totalActiveSC = nRB*12;
+      
+    reGrid=zeros(12,14*nSubframes,size(waveform,2));    
+    idx=0:nFFT-1;   
+    
+    % For each subframe in WAVEFORM, each slot in a subframe and each
+    % symbol in a slot:  
+    i=1;    
+    offset=0;
+    for subframe=0:nSubframes-1 
+        for slot=0:1
+            for symbol=0:nSymbols-1                
+           
+                cpLength=cpLengths(symbol+1);
+                fftStart=fix(cpLength*cpFraction);                              
+                phaseCorrection=repmat(exp(-1i*2*pi*(cpLength-fftStart)/nFFT*idx)',1,size(waveform,2));                 
+                halfsc=repmat(exp(1i*pi/nFFT*(idx+fftStart-cpLength))',1,size(waveform,2));                
+                fftOutput=fftshift(fft(waveform(offset+fftStart+(1:nFFT),:).*halfsc).*phaseCorrection,1)*sqrt(1.0/nFFT);
+                
+                activeSCs=fftOutput(firstActiveSC:firstActiveSC+totalActiveSC-1,:);                
+                reGrid(NbSymbolIndices(reGrid,i))=activeSCs;                
+                
+                i=i+1;
+                offset=offset+nFFT+cpLength;
+            end
+        end
+    end    
+end
+
+
+function ind = NbSymbolIndices(reGrid,symbol)
+    nSCs = size(reGrid,1);
+    nAnts = size(reGrid,3);
+    firstSCs = sub2ind(size(reGrid),ones(1,nAnts),repmat(symbol,1,nAnts),1:nAnts);
+    ind = repmat(firstSCs,nSCs,1)+repmat((0:nSCs-1).',1,nAnts);    
+end
+

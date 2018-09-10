@@ -1,0 +1,16 @@
+% extract from nbiot class lib 
+% @20180620 
+
+function [symbols,estate] = lteNPDCCH(enb,chs,cw,varargin)
+    
+    % For NPDCCH, NSF = 1 but NREF is variable.
+    % Scrambling rep type is 'not carrying BCCH'
+    % Scrambling formula is the same with RNTI = 0, NFrame = 0 and mod(NSubframe,10)
+    enb.NFrame = 0;
+    enb.NSubframe = mod(enb.NSubframe,10);
+    chs.NPDSCHDataType = 'NotBCCH';
+    chs.NSF = 1;
+    chs.RNTI = 0;
+    [symbols,estate] = lteNPDSCH(enb,chs,cw,varargin{:});
+
+end

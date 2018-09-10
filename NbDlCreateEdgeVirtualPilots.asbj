@@ -1,0 +1,21 @@
+% nbiot nrs channel estimation 
+% @ziyubiti
+% @20180727
+
+function vps = NbDlCreateEdgeVirtualPilots(p_est)
+
+    K = 12;
+    L = 14;            
+ 
+    vps = NbDlCreateDimensionVirtualPilots(p_est,2,unique([-6 min(p_est(1,:)-6) max(p_est(1,:)+6) K+6]),'linear');                    
+          
+    temp = [p_est vps];    
+
+    minSym = min(p_est(2,:));
+    maxSym = max(p_est(2,:));
+    lowerSFSym = (ceil(minSym/L)-1)*L+1; 
+    upperSFSym = ceil(maxSym/L)*L;      
+    vpLocations = unique([(lowerSFSym-1) (minSym-1) (maxSym+1) (upperSFSym+1)]);
+    vps = [vps NbDlCreateDimensionVirtualPilots(temp,1,vpLocations,'linear')];
+end
+

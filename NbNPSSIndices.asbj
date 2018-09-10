@@ -1,0 +1,39 @@
+% extract from nbiot class lib 
+% @20180621
+
+function indices = NbNPSSIndices(enb)
+    
+    % Since NPSS has a fixed schedule (subframe 5 in every frame)
+    % only return indices if in that subframe
+    if mod(enb.NSubframe,10) ~= 5
+        indices = [];
+        return;
+    end
+    
+    grid = zeros(12,14);
+    
+    if any(strcmpi(enb.OperationMode,{'Inband-SamePCI','Inband-DifferentPCI'}))
+        if isfield(enb,'CellRefP') && ~isempty(enb.CellRefP) && (enb.CellRefP ~= 0)
+            % Locate max CRS locations within an LTE carrier grid
+            if ~isfield(enb,'NCellID')
+                enb.NCellID = enb.NNCellID;
+            end
+            enb.NDLRB = 6;
+            enb.CyclicPrefix = 'Normal';
+            enb.DuplexMode = 'FDD';
+            grid = lteResourceGrid(enb);
+            grid(lteCellRSIndices(enb)) = 1;
+            % Extract single resource block
+            grid = grid(1:12,:,:);
+        end
+    end
+    
+    % Locate last subcarrier of resource block
+    grid(12,:,:) = 1;
+    
+    % Find 1-based NPSS indices, excluding the first 3 symbols
+    indices = find(sum(grid(:,4:end,:),3)==0) + 3*12;
+    
+    % If port 2001 then add an additional 14*12 offset
+    
+end

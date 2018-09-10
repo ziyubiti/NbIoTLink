@@ -1,0 +1,23 @@
+% nbiot Npss local time sequence 
+% @ziyubiti
+% @20180626
+
+
+function [seq,seqdw] = NbNpssSeq(enb)
+    npssgrid = zeros(12,14);
+    enb2 = enb;
+    enb2.NSubframe = 5;    
+    indices = NbNPSSIndices(enb2);
+    npssgrid(indices) = NbNPSS(enb2);
+    
+    [waveform] = NbModulate(npssgrid,0);
+    
+    seq = waveform(413:end,1);
+    seqdw = resample(seq, 1, 8); 
+    
+%     figure();
+%     plot(abs(seqdw));
+%     grid on;
+    
+
+end

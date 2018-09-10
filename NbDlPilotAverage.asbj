@@ -1,0 +1,20 @@
+% nbiot nrs channel estimation 
+% @ziyubiti
+% @20180727
+
+function [P_EST, ScalingVec]= NbDlPilotAverage(cec,H_EST,ls_estimates)
+    P_EST = ls_estimates;
+    reGrid = zeros(size(H_EST,1),size(H_EST,2));
+    reGrid(sub2ind(size(reGrid),ls_estimates(1,:),ls_estimates(2,:))) = ls_estimates(3,:); 
+    kernel = ones(cec.FreqWindow,cec.TimeWindow);
+    reGrid = conv2(reGrid,kernel,'same');    
+
+    tempGrid = zeros(size(reGrid));
+    tempGrid(sub2ind(size(reGrid),ls_estimates(1,:),ls_estimates(2,:))) = reGrid(sub2ind(size(reGrid),ls_estimates(1,:),ls_estimates(2,:)));
+    reGrid = tempGrid;
+
+    [reGrid, ScalingVec] = NbDlNormalisePilotAverage(cec,ls_estimates,reGrid);      
+    
+    P_EST(3,:) = reGrid(sub2ind(size(tempGrid),P_EST(1,:),P_EST(2,:)));
+
+end

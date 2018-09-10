@@ -1,0 +1,33 @@
+% nbiot ICS 
+% @ziyubiti
+% @20180626
+
+function [pcid,offset] = NbCellSearch(bufferIQ,enb,SimPara,info)
+
+    % Unit Test    
+    tmp = load('DLwave_200ms.mat');   
+    bufferIQ = tmp.waveform*sqrt(128);
+    cand_fo = 0.0e3;%1275;
+    comp_phase = exp(j*2*pi*cand_fo./info.SamplingRate.*(0:size(bufferIQ,1)-1));
+    bufferIQ = bufferIQ .*comp_phase.';
+    % UT end
+
+    
+    info = NbiotInfo();    
+
+    %% step 1: npss timing, coarse timing and cfo estimation    
+    [offset,foe_coarse] = NbNpssTiming(bufferIQ,info,SimPara,enb);    
+        
+    %% step 2: coarse foe compensation
+    foe_coarse_phase = exp(j*2*pi*foe_coarse./info.SamplingRate.*(0:size(bufferIQ,1)-1));
+    dataComp = bufferIQ .*foe_coarse_phase.';
+    
+    %% step 3: sss and pci detection, refine timing and cfo estimation     
+    if (SimPara.Alg.ICS.max_cell_count == 1)  % single cell
+        Result = NbNsssDetectionSingleCell(dataComp,offset,info,SimPara,enb);        
+    else                                        % multi-cell,SIC
+        % TBC
+    end
+          
+    
+end

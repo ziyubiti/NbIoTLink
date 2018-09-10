@@ -1,0 +1,233 @@
+%lteNPDSCH NB-IoT physical downlink shared channel
+%   [SYM,STATEOUT] = lteNPDSCH(...) returns a matrix containing the NB-IoT
+%   Physical Downlink Shared Channel (NPDSCH) complex symbols in a subframe
+%   (TS 36.211 10.2.3) and a structure STATEOUT containing the encoding
+%   state for transmission of the repetitions for a transport block. The
+%   full repetitions for a transport block is referred to as a bundle in
+%   the MAC layer (TS 36.321 5.3.2.1).
+%
+%   [SYM,STATEOUT] = lteNPDSCH(ENB,CHS,CW) returns a matrix containing
+%   the NPDSCH complex symbols and a structure STATEOUT containing the
+%   encoding state for cell wide settings ENB, channel transmission
+%   configuration CHS and the codeword contained in CW. The channel
+%   processing includes the stages of subframe selection, scrambling,
+%   symbol modulation, layer mapping and precoding. The size of the matrix
+%   SYM is N-by-P with N being the number of modulation symbols for one
+%   antenna port, and P being the number of transmission antennas.
+%
+%   ENB must be a structure including the fields:  
+%   NNCellID        - NB-IoT physical layer cell identity
+%   NSubframe       - Subframe number
+%   NFrame          - Optional. Frame number (default 0)
+%   NBRefP          - Number of narrowband reference signal antenna  
+%                     ports (1,2)
+%
+%   CHS must be a structure including the fields:
+%   NPDSCHDataType - Optional. The type of the data carried by NPDSCH.
+%                   ('NotBCCH'(default),'SIB1NB','BCCHNotSIB1NB')
+%   NSF            - Number of subframes that a codeword is mapped to (not
+%                    including repetitions). Only required when
+%                    NPDSCHDataType is not equal to 'SIB1NB'
+%   NRep           - Number of repetitions
+%   RNTI           - Radio Network Temporary Identifier (16-bit). Only 
+%                    required when NPDSCHDataType is not equal to 'SIB1NB'
+%
+%   Note that when NPDSCHDataType = 'SIB1NB', NSF is set to 8 and
+%   RNTI is set to 65535 (SI-RNTI).
+%                   
+%   CW is a vector of bit values for one codeword to be modulated.
+%
+%   [SYM,STATEOUT] = lteNPDSCH(ENB,CHS,CW,STATEIN) returns a matrix
+%   containing the NPDSCH complex symbols and a structure STATEOUT
+%   containing the encoding state for cell wide settings ENB, channel
+%   transmission configuration CHS, the codeword contained in CW and an
+%   input encoding state STATEIN.
+%
+%   STATEIN is an optional input structure which can input the current
+%   encoder state for the transmission of a bundle. All the fields
+%   (SubframeIdx, InitNSubframe, InitNFrame and EndOfTx) are optional in
+%   STATEIN. It can be empty if there is no information provided, e.g., at
+%   the first subframe of a bundle. The STATEIN array would normally be
+%   generated and recycled from the STATEOUT of previous calls to lteNPDSCH
+%   as part of the bundle transmission.
+%
+%   STATEOUT is a structure containing output encoder state in the
+%   following fields:
+%   SubframeIdx   - 0-based index of a subframe in a bundle, used to 
+%                   generate its scrambled codeword bits.
+%                   (0...NSF-by-NRep-1)
+%   InitNSubframe - Subframe number for scrambling sequence initialization
+%                   in the current subframe
+%   InitNFrame    - Frame number for scrambling sequence initialization
+%                   in the current subframe
+%   EndOfTx       - Indicator of whether the transmission has reached the
+%                   end of a bundle (true or false)
+%
+%   Further explanations for the above paramters:
+%   The output SubframeIdx in STATEOUT is equal to its input in STATEIN
+%   increased by 1, and it wraps around to 0 when reaching the maximum
+%   value. If there is no input in STATEIN, the default input is 0. An
+%   output value 0 indicates the transmission has reached the end of a
+%   bundle, i.e. output EndOfTx is TRUE. For InitNSubframe and InitNFrame,
+%   in the case the subframe under processing is at the scrambling sequence
+%   initialization point, they are equal to NSubframe and NFrame in ENB,
+%   respectively. In the case the subframe is not at the initialization
+%   point, they are equal to the inputs in STATEIN if the inputs exist,
+%   respectively, otherwise, InitNSubframe is equal to ENB.NSubframe and
+%   InitNFrame is 0.
+%
+%   The STATEOUT structure would normally be reapplied via the STATEIN
+%   structure of subsequent lteNPDSCH function calls as part of the bundle
+%   transmission.
+%
+%   Example:
+%   % Generate the NPDSCH symbols subframe by subframe for a bundle
+%   % consisting of 12 subframes.
+%
+%   enb.NNCellID = 0;
+%   enb.NBRefP = 1;
+%   chs.NSF = 3;
+%   chs.NRep = 4;
+%   chs.RNTI = 0;
+%   chs.NPDSCHDataType = 'NotBCCH';
+%   cwLen = 960;
+%   estate = []; % No encoder state provided at the start of the bundle
+%   cw = ones(cwLen,1); % Codeword bits
+%   for subframeIdx = 0:(chs.NSF*chs.NRep-1)
+%      enb.NSubframe = subframeIdx;
+%      [txsym,estate] = lteNPDSCH(enb,chs,cw,estate);
+%   end
+%   estate.EndOfTx
+%
+%   % The above example returns: 
+%   % logical
+%   % 1  
+%
+%   See also lteNPDSCHDecode, lteNPDSCHIndices, lteNDLSCH, ltePDSCH.
+
+%   Copyright 2017 The MathWorks, Inc.
+
+function [symbols,estate] = lteNPDSCH(enb,chs,cw,estate)
+
+    % Validate the number of input arguments
+    narginchk(3, 4); 
+    
+    % Create an empty encoder state if it was not an input
+    if nargin < 4
+        estate = [];
+    end
+    
+    % Validate the input parameters
+    [enb,chs,cw,estate] = validateInputs(enb,chs,cw,estate);
+    
+    % To handle the case when the parameter field NSF or NRep is zero, or
+    % the input codeword is empty
+    if chs.NSF == 0 || chs.NRep == 0 || isempty(cw)
+        symbols = [];
+        return;
+    end
+
+    % Get codeword length and number of available bits per subframe
+    cwlen = length(cw);
+    G = cwlen/chs.NSF;
+    
+    % Get codeword portion index cwportionIdx
+    if strcmpi(chs.NPDSCHDataType,'NotBCCH')
+        NRepMin = min(chs.NRep, 4); % Initial number of repetitions
+        NotBCCH = true;
+    else % NPDSCH carrying BCCH ('SIB1NB' or 'BCCHNotSIB1NB')
+        NRepMin = 1;
+        NotBCCH = false;
+    end
+    cwportionIdx = mod(floor(estate.SubframeIdx/NRepMin),chs.NSF);
+    
+    % Get scrambling sequence initialization value cinit
+    if mod(estate.SubframeIdx,NRepMin*chs.NSF) == 0
+         % Update frame and subframe numbers in estate
+         estate.InitNSubframe = enb.NSubframe;
+         estate.InitNFrame = enb.NFrame;
+    end
+    nframe = estate.InitNFrame + fix(estate.InitNSubframe/10);
+    nsubframe = mod(estate.InitNSubframe,10);
+    if NotBCCH
+        cinit = 2^14*chs.RNTI+mod(nframe,2)*2^13+nsubframe*2^9+enb.NNCellID;
+    else % Carrying BCCH ('SIB1NB' or 'BCCHNotSIB1NB')
+        cinit = 2^15*chs.RNTI+(enb.NNCellID+1)*(mod(nframe,61)+1);
+    end
+
+    % Get scrambling sequence for a subframe and perform scrambling
+    scrambleSeq = ltePRBS(cinit,[cwportionIdx*G G]);
+    cw = cw(:);
+    scrambledCw = xor(cw(1+cwportionIdx*G:(cwportionIdx+1)*G),scrambleSeq);
+
+    % Modulation
+    npdschSymbols = lteSymbolModulate(scrambledCw,'QPSK');
+    
+    % Obtain transmission scheme for configuring lteLayerMap and
+    % lteDLPrecode, it falls back to single port in the single port case
+    TxScheme = 'TxDiversity';
+
+    % Layer mapping
+    layerMappedSymbols = lteLayerMap(npdschSymbols,enb.NBRefP,TxScheme);
+    
+    % Precoding
+    symbols = lteDLPrecode(layerMappedSymbols,enb.NBRefP,TxScheme);
+    
+    % Update subframe index and end of transmit flag
+    estate.SubframeIdx = estate.SubframeIdx + 1;
+    if estate.SubframeIdx == chs.NSF*chs.NRep
+        estate.SubframeIdx = 0;
+        estate.EndOfTx = true;
+    end
+    
+end
+
+% Validate the input parameters
+function [enb,chs,cw,estate] = validateInputs(enb,chs,cw,estate)
+
+    % Validate the fields in eNodeB structure
+    enb = mwltelibrary('validateLTEParameters',enb,'NSubframe','NFrame','NBRefP','NNCellID');
+
+    if isempty(estate)
+       estate = struct();
+    end
+    
+    % Reset subframe index
+    if ~isfield(estate,'SubframeIdx')
+        estate.SubframeIdx = 0;
+    end
+    
+    % Reset end of transmit flag
+    if ~isfield(estate,'EndOfTx') || estate.EndOfTx
+        estate.EndOfTx = false;
+    end
+    
+    % Validate the subframe number field in estate
+    estate = mwltelibrary('validateLTEParameters',estate,'InitNFrame','optionalnowarning');
+    
+    % Validate the subframe number field in estate when it exists, use the
+    % same field from enb when it doesn't
+    if isfield(estate,'InitNSubframe')
+        estate = mwltelibrary('validateLTEParameters',estate,'InitNSubframe');
+    else
+        estate.InitNSubframe = enb.NSubframe;
+    end
+    
+    % Validate the fields in NPDSCH structure
+    chs = mwltelibrary('validateLTEParameters',chs,'NPDSCHDataType');
+    if strcmpi(chs.NPDSCHDataType,'SIB1NB')
+        % Hardwire NSF and RNTI for NPDSCH carrying SIB1-NB 
+        chs.NSF = 8; 
+        chs.RNTI = 65535; % SI-RNTI
+    end
+    chs = mwltelibrary('validateLTEParameters',chs,'NSF','NRep','RNTI');
+    
+    % Verify the input codeword bits
+    if ~isempty(cw) && ~isvector(cw)
+        error('lte:error','The input codeword bits should be a vector.');
+    end
+    if mod(length(cw),chs.NSF) ~= 0 
+        error('lte:error','The length of the input codeword (%d) should be an integer multiple of the number of subframes per codeword (%d).',length(cw),chs.NSF);
+    end
+    
+end

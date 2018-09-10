@@ -1,0 +1,150 @@
+%lteNDLSCHDecode NB-IoT downlink shared channel decoding
+%   [TRBLKOUT,BLKCRC,STATEOUT] = lteNDLSCHDecode(TRBLKLEN,CWIN,STATEIN)
+%   returns the information bits TRBLKOUT decoded from the input soft LLR
+%   codeword data CWIN. The NB-IoT Downlink Shared Channel (DL-SCH) decoder
+%   includes rate recovery, Viterbi decoding and CRC calculations. The
+%   function also returns the type-24A transport block CRC decoding result
+%   in BLKCRC and the HARQ process decoding state in STATEOUT. The initial
+%   HARQ process state can be input via the optional STATEIN parameter. The
+%   initial transmission and the re-transmission are both bundles
+%   containing multiple subframes.
+%   
+%   TRBLKLEN is an input scalar defining the transport block length that
+%   the input code block should be rate recovered and decoded to.
+%   
+%   CWIN is an input vector containing the floating point soft LLR data
+%   of the codeword to be decoded.
+% 
+%   STATEIN is an optional input structure which can input the current
+%   decoder buffer state for each transport block in an active HARQ
+%   process. If STATEIN is not an empty structure and it contains a
+%   non-empty field CBSBuffers then this field should contain a cell array
+%   of a vector representing the LLR soft buffer state for the transport
+%   block at the input to the Viterbi decoder i.e. after explicit rate
+%   recovery. The updated buffer state after decoding are returned in the
+%   CBSBuffers field in the output parameter STATEOUT. The STATEIN
+%   structure would normally be generated and recycled from the STATEOUT of
+%   previous calls to lteNDLSCHDecode as part of a sequence of HARQ
+%   transmissions.
+%   
+%   TRBLKOUT is the output vector containing the decoded information
+%   bits.
+%
+%   BLKCRC is an output logical scalar containing the result of the
+%   type-24A transport block CRC decoding for the transport block.
+%   
+%   STATEOUT, the final output parameter, is a structure containing the
+%   internal state of the transport block decoder in the following fields:
+%   CBSBuffers - Cell array of a vector representing the LLR soft buffer 
+%                state for a single transport block; the buffer are  
+%                positioned at the input to the Viterbi decoder i.e. after
+%                explicit rate recovery
+%   BLKCRC     - Type-24A transport block CRC decoding error
+%
+%   The STATEOUT structure would normally be reapplied via the STATEIN
+%   variable of subsequent lteNDLSCHDecode function calls as part of a
+%   sequence of HARQ retransmissions. Note that the field CBSBuffers only
+%   contains a single code block because the transport block does not
+%   require segmentation, i.e. there is only one vector in the cell array.
+%
+%   Example:
+%   % A bundle carrying the same transport block is transmitted twice. In 
+%   % the MAC layer specification TS 36.212, a bundle is defined as the
+%   % complete repetitions of a codeword encoded from a transport block. 
+%   % The LLR soft bits from repeated subframes in a bundle are combined 
+%   % in structure dstate, the LLR soft bits from two bundles are combined
+%   % in structure state. Note that dstate is reset in lteNPDSCHDecode
+%   % before the re-transmission of the bundle.
+%
+%   enb.NNCellID = 0;
+%   enb.NBRefP = 1;
+%   chs.NSF = 3;
+%   chs.NRep = 4;
+%   chs.RNTI = 0;
+%   chs.NPDSCHDataType = 'NotBCCH';
+%   trblklen = 208;
+%   outlen = 960;
+%   estate = []; % Clear NPDSCH encoder state at the start of a bundle
+%   dstate = []; % Clear NPDSCH decoder state at the start of a bundle
+%   state = [];  % Clear DL-SCH decoder state before the initial 
+%                % transmission of a bundle
+%   trblkin = randi([0 1],trblklen,1);
+%   cw = lteNDLSCH(outlen,trblkin);
+% 
+%   % Initial transmission of a bundle containing the codeword encoded from
+%   % the transport block
+%   for subframeIdx = 0:(chs.NSF*chs.NRep-1)
+%       enb.NSubframe = subframeIdx;
+%       [sym,estate] = lteNPDSCH(enb,chs,cw,estate);
+%       [rxcw, dstate] = lteNPDSCHDecode(enb,chs,sym,dstate);
+%   end
+%   [trblkout1,blkerr1,state] = lteNDLSCHDecode(trblklen,rxcw,state);
+% 
+%   % Re-transmission of the bundle containing the codeword encoded from 
+%   % the same transport block. The information obtained from the initial
+%   % bundle transmission is saved in state and used as an input to
+%   % lteNDLSCHDecode.
+%   for subframeIdx = chs.NSF*chs.NRep:(2*chs.NSF*chs.NRep-1)
+%       enb.NSubframe = subframeIdx;
+%       [sym,estate] = lteNPDSCH(enb,chs,cw,estate);
+%       [rxcw,dstate] = lteNPDSCHDecode(enb,chs,sym,dstate);
+%   end
+%   [trblkout2,blkerr2,state] = lteNDLSCHDecode(trblklen,rxcw,state);
+%
+%   See also lteNDLSCH, lteNPDSCHDecode, lteDLSCHDecode.
+
+%   Copyright 2017 The MathWorks, Inc.
+
+function [out,err,dstate] = lteNDLSCHDecode(trblklen,sbits,dstate)
+    
+    % Validate the number of input arguments
+    narginchk(2, 3); 
+    
+    % Create an empty encoder state if it was not an input
+    if nargin < 3
+        dstate = [];
+    end
+    
+    % Prepare the dstate structure vector
+    if isempty(dstate)
+        dstate.CBSBuffers = {};
+    elseif ~isstruct(dstate)
+        error('lte:error','The decoder state must be a structure.');
+    elseif ~isfield(dstate,'CBSBuffers')
+        dstate.CBSBuffers = {};
+    end
+
+    % Rate recovery
+    raterecovered = lteRateRecoverConvolutional(sbits,3*(trblklen+24));
+    
+    % Soft combining
+    if ~isempty(dstate.CBSBuffers)
+        if length(raterecovered) ~= length(dstate.CBSBuffers{1})
+            error('lte:error','If the CBSBuffers soft data input is not empty then it should have the same dimensions as the encoded code block size.');
+        end
+        raterecovered = raterecovered + dstate.CBSBuffers{1};
+    end
+    
+    % Viterbi decode
+    bitsDecoded = lteConvolutionalDecode(raterecovered);
+    
+    % CRC decode
+    [out,err] = lteCRCDecode(bitsDecoded,'24A');
+    if (isempty(out))
+        % Treat decoding to a TBS of zero as a non-existent rather than
+        % empty transport block, so set the CRC to a pass
+        err = false;
+    else
+        err = (err~=0);
+    end
+    dstate.BLKCRC = err;
+    
+    % For an empty data input, the code block soft buffer state should be
+    % empty, otherwise it is the output of the rate recovery
+    if isempty(sbits)
+        dstate.CBSBuffers = cell(1,0);
+    else
+        dstate.CBSBuffers = {raterecovered};
+    end
+      
+end

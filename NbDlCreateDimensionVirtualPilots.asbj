@@ -1,0 +1,32 @@
+% nbiot nrs channel estimation 
+% @ziyubiti
+% @20180727
+
+% dim=1 adds VPs in time
+% dim=2 adds VPs in frequency
+
+function vps = NbDlCreateDimensionVirtualPilots(p_est,dim,points,method)
+
+    Npoints = numel(points);
+
+    pilots = unique(p_est(dim,:));
+    Npilots = numel(pilots);
+
+    vps = zeros(3,Npilots*Npoints);
+    pilots_out = repmat(pilots,Npoints,1);
+    vps(1,:) = pilots_out(:);
+    vps(2,:) = repmat(points,1,Npilots);
+    
+    for idx = 1:Npilots
+        x = find(p_est(dim,:)==pilots(idx));
+        rep = 1+double(length(x)==1);
+        adj = (1:rep)-rep;
+        interpolant = griddedInterpolant(p_est(3-dim,x)+adj,repmat(p_est(3,x),1,rep),method);
+        vps(3,(idx-1)*Npoints + (1:Npoints)) = interpolant(points);
+    end
+    
+    if (dim==2)
+        vps = vps([2 1 3],:);
+    end
+    
+end

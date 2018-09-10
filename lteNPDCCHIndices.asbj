@@ -1,0 +1,31 @@
+% extract from nbiot class lib 
+% @20180620
+
+
+function [indices,varargout] = lteNPDCCHIndices(enb,chs,varargin)
+    
+    % Will be the same as NPDSCH but, potentially, only half the RB (top half, bottom half) 
+    chs.NPDSCHDataType = 'NotBCCH';
+    chs.NSF = 1;
+    [indices,varargout{1:nargout-1}] = lteNPDSCHIndices(enb,chs,varargin{:});
+
+    % Check values with min, max
+    ncce = unique(chs.NCCE);
+    
+    if length(ncce)==1
+        
+        colidx = mod(size(indices,2)-1,2)+1;  % 1->1, 2->2, 3->1
+        onebased = ~mod(indices(end,colidx),2);
+        onebased = xor(onebased,enb.NNCellID==2 || (enb.NNCellID==5 && enb.NBRefP==2));
+
+        offset = 6*(ncce==1);
+        indices = indices(mod(indices(:,1)+offset-onebased,12)<=5,:);
+
+        if nargout > 1
+            varargout{1}.G = varargout{1}.G/2;
+            varargout{1}.Gd = varargout{1}.Gd/2;
+        end 
+        
+    end
+
+end

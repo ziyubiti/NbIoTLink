@@ -1,0 +1,563 @@
+% NBIoTDownlinkWaveformGeneratorV3 NB-IoT downlink waveform generation
+%   The waveform sampling rate is fixed at 1.92 MHz (Nfft = 128).
+
+
+classdef NBIoTDownlinkWaveformGeneratorV3
+    
+    properties (Constant, Access=private)         
+        Channels = getChannelList();
+    end
+
+    properties (Access = public)
+        Config;
+    end
+           
+    properties (Constant, Access=public)
+       
+        NSFTable = getNSFTable();                       % TS 36.213 Table 16.4.1.3-1: Number of subframes (NSF) for NPDSCH
+        NRepTable = getNRepTable();                     % TS 36.213 Table 16.4.1.3-2: Number of repetitions (NRep) for NPDSCH
+        TBSTable = getTBSTable();                       % TS 36.213 Table 16.4.1.5.1-1: Transport block size (TBS) table
+        NRepTableSIB1 = getSchedulingInfoNRepTable();   % TS 36.213 Table 16.4.1.3-3: Number of repetitions for NPDSCH carrying SystemInformationBlockType1-NB
+        TBSTableSIB1 = getSchedulingInfoTBSTable();     % TS 36.213 Table 16.4.1.5.2-1: Transport block size (TBS) table for NPDSCH carrying SystemInformationBlockType1-NB     
+ 
+    end
+        
+    methods
+    
+        % Setter associated with the Config parameter
+        function obj = set.Config(obj,params)           
+            if ~isstruct(params)
+                error('The Config property must be a properly formatted structure.');
+            end  
+            obj.Config = params;
+        end      
+           
+        % Class constructor
+        function obj = NBIoTDownlinkWaveformGeneratorV3(rc)
+                    
+            % Default parameter set, if no input provided
+            if nargin == 0             
+                rc = 'R.NB.6';
+            else
+                supportedrc = {'R.NB.5','R.NB.5-1','R.NB.6','R.NB.6-1','R.NB.7'};
+                if ~any(strcmpi(rc,supportedrc))
+                    error('The NB RMC name must be one of %s',strjoin(supportedrc,', '));
+                end
+            end
+            
+            % General, cell-wide parameters
+            enb.TotSubframes = 20;
+            enb.NNCellID = 0;
+            enb.NBRefP = 2;
+            enb.CellRefP = 4;           % For inband cases only
+            enb.ControlRegionSize = 3;  % For inband cases only
+            enb.NFrame = 0;             % Initial frame number associated with waveform
+            enb.OperationMode = 'Standalone'; % 'Inband-SamePCI';
+            enb.DownlinkBitmap = [1 1 1 1 1 1 1 1 1 1];    % Carrier bitmap (anchor name)
+            enb.CarrierType = 'Anchor'; 
+            % These only apply if configured, and don't apply to NPDSCH carrying BCCH
+            enb.DLGapThreshold = 32;        % 32,64,128,256
+            enb.DLGapPeriodicity = 64;      % 64,128,256,512 subframes
+            enb.DLGapDurationCoeff = 1/8;   % 1/8, 1/4, 3/8, 1/2
+            enb.NPSSPower = 0;
+            enb.NSSSPower = 0;
+
+            % NPBCH parameters
+            npbch.Power = 0; 
+            npbch.DataSource = 'PN9';
+            npbch.DataBlkSize = 34;
+
+            % Reference SIB1 NPDSCH
+            sib1npdsch.Enable = 'On';
+            sib1npdsch.Power = 0;
+            sib1npdsch.NRep = 4;
+            sib1npdsch.DataBlkSize = 208;     %  208, 328, 440, 680 bits, each with 4,8,16 NRep
+            sib1npdsch.DataSource = 'PN9';
+
+            % Reference NPDCCH
+            refnpdcch.Enable = 'On';
+            refnpdcch.Power = 0;
+            refnpdcch.NCCE = [0 1];
+            refnpdcch.NRep = 1;
+            refnpdcch.Rmax = 16; % 2^n = 1...2048
+            refnpdcch.RNTI = 1;
+            refnpdcch.StartSubframe = 0;
+            refnpdcch.DataBlkSize = 23;     % 23 bits for DCI N0/N1 (can be 24 for Release 14 with 2 HARQ processes config)
+            refnpdcch.DataSource = 'PN9';
+
+            % Reference NPDSCH
+            refnpdsch.Enable = 'On';
+            refnpdsch.Power = 0; 
+            refnpdsch.NPDSCHDataType = 'NotBCCH';
+            refnpdsch.NSF = 1;
+            refnpdsch.NRep = 1;
+            refnpdsch.Rmax = 16; % 2^n = 1...2048
+            refnpdsch.RNTI = 1;
+            refnpdsch.StartSubframe = 10;
+            refnpdsch.DataBlkSize = 56;
+            refnpdsch.DataSource = 'PN9';
+
+            % TS 36.101 A.3.12	Reference measurement channels for NPDSCH performance requirements
+            % 'R.NB.5',  'R.NB.5-1',  'R.NB.6', 'R.NB.6-1', 'R.NB.7'
+            switch rc
+                case 'R.NB.5'
+                    enb.NBRefP = 2;
+                    enb.CarrierType = 'Anchor';
+                    enb.OperationMode = 'Inband-SamePCI';
+                    refnpdsch.NSF = 1;
+                    refnpdsch.StartSubframe = 6;
+                    refnpdsch.DataBlkSize = 56;
+                case 'R.NB.5-1'
+                    enb.NBRefP = 2;
+                    enb.CarrierType = 'NonAnchor';
+                    enb.OperationMode = 'Inband-SamePCI';
+                    refnpdsch.NSF = 1;
+                    refnpdsch.StartSubframe = 5;
+                    refnpdsch.DataBlkSize = 56;
+                case 'R.NB.6'
+                    enb.NBRefP = 1;
+                    enb.CarrierType = 'Anchor';
+                    enb.OperationMode = 'Standalone';
+                    refnpdsch.NSF = 4;
+                    refnpdsch.StartSubframe = 6;
+                    refnpdsch.DataBlkSize = 616;
+                case 'R.NB.6-1'
+                    enb.NBRefP = 1;
+                    enb.CarrierType = 'NonAnchor';
+                    enb.OperationMode = 'Standalone';     
+                    refnpdsch.NSF = 4;
+                    refnpdsch.StartSubframe = 5;
+                    refnpdsch.DataBlkSize = 392;
+                case 'R.NB.7'
+                    enb.NBRefP = 1;
+                    enb.CarrierType = 'NonAnchor';
+                    enb.OperationMode = 'Standalone'; 
+                    refnpdsch.NSF = 6;
+                    refnpdsch.StartSubframe = 5;
+                    refnpdsch.DataBlkSize = 936;
+            end
+
+            % Assign individual strcture to the Config property
+            obj.Config = enb;
+            obj.Config.NPBCH = npbch;
+            obj.Config.SIB1NPDSCH = sib1npdsch;    
+            obj.Config.NPDCCH = refnpdcch;
+            obj.Config.NPDSCH = refnpdsch;
+        
+        end
+      
+  
+        function [waveform,grid,info] = generateWaveform(obj)
+       
+            % Generate baseband waveform and resource grid
+            [grid,sftypes] = generateGrid(obj);          
+            [waveform,info] = NbModulate(grid);            
+            info.SubframeChannelTypes = sftypes;
+        end
+
+   end
+
+   methods (Access=private)
+
+        % Generate the underlying resource grid
+        function [grid,sftypes] = generateGrid(obj)
+
+            enb = obj.Config;
+            npbch = obj.Config.NPBCH;
+            sib1npdsch = obj.Config.SIB1NPDSCH;
+            refnpdcch = obj.Config.NPDCCH;
+            refnpdsch = obj.Config.NPDSCH;
+
+            [refnpdsch.SubframeIdx] = deal(-1);
+            [refnpdsch.InitNFrame] = deal([]);
+            [refnpdsch.InitNSubframe] = deal(0);
+            
+            [refnpdcch.SubframeIdx] = deal(-1);
+            [refnpdcch.InitNFrame] = deal([]);
+            [refnpdcch.InitNSubframe] = deal(0);
+            
+            powerconv = @(x)power(10,(x/20));
+
+            enb.DownlinkBitmap = logicalBitmap(enb.DownlinkBitmap);
+
+            % Channel/signal power scaling
+            power_npss = powerconv(enb.NPSSPower);    
+            power_nsss = powerconv(enb.NSSSPower);    
+            power_npbch = powerconv(npbch.Power);    
+            power_nsib1 = powerconv(sib1npdsch.Power);    
+
+            numsubframes = enb.TotSubframes;
+%             grid = zeros(12,numsubframes*14,enb.NBRefP);   % bj: only 1 sf
+            grid = [];
+            sftypes(1:numsubframes) = NBIoTDownlinkWaveformGeneratorV3.Channels.None; 
+            
+            sfstart = enb.NSubframe;           % bj : start sf
+            
+            for sf = sfstart:sfstart+numsubframes-1           % bj : per sf  processing
+                
+                sfgrid = zeros(12,14,enb.NBRefP);
+                enb.NSubframe = sf;             % bj:  update per sf loop
+
+                sftype = NBIoTDownlinkWaveformGeneratorV3.Channels.Not;
+                rsneeded = 0;    
+
+                if strcmpi(enb.CarrierType,'Anchor')
+                    
+                    % NPSS
+                    indices = NbNPSSIndices(enb);
+                    sfgrid(indices) = power_npss*NbNPSS(enb);
+                    if ~isempty(indices)
+                       sftype = NBIoTDownlinkWaveformGeneratorV3.Channels.NPSS;
+                    end
+
+                    % NSSS
+                    indices = NbNSSSIndices(enb);
+                    sfgrid(indices) = power_nsss*NbNSSS(enb);
+                    if ~isempty(indices)
+                       sftype = NBIoTDownlinkWaveformGeneratorV3.Channels.NSSS;
+                    end
+
+                    % NPBCH
+                    [indices,info] = NbNPBCHIndices(enb);
+                    if ~isempty(indices)
+
+                        % Codeword is split into 8 sub-blocks, and each sub-block is transmitted 8 times in sf0 of 8 consecutive frames, 
+                        % thus overall periodicity is 64 frames
+
+                        % So every 64 sf0 transmissions (64 frames) we 'need' to update the MIB-NB/BCH codeword
+                        if mod(sf+enb.NFrame*10,64*10) == 0           % bj: add NFrame*10,to calc the golbal timing
+                            % mibnb = ones(1,34);                     % MIB-NB length % cw = ones(1,1600); 
+                            trblksize = npbch.DataBlkSize;
+                            datasource = vectorDataSource(npbch.DataSource);
+                            mibnb = datasource.getPacket(trblksize);
+                            cw = lteBCH(mibnb,info.G,enb.NBRefP);   % Bit capacity is hardwired here, effectively 8 reps of 8 subframe*200 bit capacity
+                        end
+
+                        symbols = NbNPBCH(enb,cw);
+                        sfgrid(indices) = power_npbch*symbols;
+
+                        rsneeded = true;           
+                        sftype = NBIoTDownlinkWaveformGeneratorV3.Channels.NPBCH;
+
+                    end
+
+                    % SIB1 is subframe #4 in every other frame in the first 16 frames of a repetition period 
+                    % Starting radio frame for the first transmission of the NPDSCH carrying SystemInformationBlockType1-NB
+                    if strcmpi(sib1npdsch.Enable,'On') 
+                        rep = sib1npdsch.NRep;
+                        startfm = (rep~=16)*16*mod(enb.NNCellID,16/rep) + (rep==16)*mod(enb.NNCellID,2);
+                        sfo = sf-10*startfm;
+                        nf = fix(sfo/10);
+                  %      sib1sf = mod(sfo,10)==4 && nf>=0 && mod(nf,2)==0 && mod(fix(nf/16),fix(16/rep))==0;
+                        if isfield(enb,'NFrame')
+                            nsf = sf + enb.NFrame*10;
+                        end
+                        sib1sf = (mod(nsf,20)==(startfm*10+4)) && (mod(fix(nf/16),fix(16/rep))==0);   % bj: only PCI 0, start Frame 0: ok; other para ffs
+
+                        if sib1sf
+
+                           sib1npdsch.NPDSCHDataType = 'SIB1NB'; 
+                           [indices,info] = lteNPDSCHIndices(enb,sib1npdsch);
+
+                           % Do we need to supply an updated codeword now?
+                           if ~isfield(sib1npdsch,'SubframeIdx') || sib1npdsch.SubframeIdx == 0
+
+                                trblksize = sib1npdsch.DataBlkSize;
+                                datasource = vectorDataSource(sib1npdsch.DataSource);
+                                trblk = datasource.getPacket(trblksize);
+
+                                sib1cw = lteNDLSCH(info.G,trblk);                              
+                           end
+
+                           [symbols,sib1npdsch] = lteNPDSCH(enb,sib1npdsch,sib1cw,sib1npdsch);
+                           sfgrid(indices) = power_nsib1*symbols; 
+
+                           rsneeded = true;
+                           sftype = NBIoTDownlinkWaveformGeneratorV3.Channels.NPDSCHSIB1;
+
+                        end
+                    end
+
+                end
+
+                % Test for subframe being a downlink NB-IoT subframe
+                % This is the most general test to establish whether any kind of
+                % non-fixed transmission can take place in this subframe
+                %
+                % Use logicalBitmap to extract the bitmap
+                if enb.DownlinkBitmap(mod(sf,length(enb.DownlinkBitmap))+1)~=0 && ~any(sfgrid(:)~=0)
+                    
+                    rsneeded = true;
+                    sftype = NBIoTDownlinkWaveformGeneratorV3.Channels.None;
+
+                    chset = [];
+
+                    % Process NDPSCH
+                    trch = @(chs,outlen,blkin) lteDCIEncode(chs,blkin,outlen);
+                    phych = @lteNPDCCH;
+                    phychindices = @lteNPDCCHIndices;
+                    chenum = 'NPDCCH';
+                    refnpdcch = doChannels(refnpdcch);      
+
+                    % Process NDPSCH 
+                    trch = @(chs,outlen,blkin) lteNDLSCH(outlen,blkin);
+                    phych = @lteNPDSCH;
+                    phychindices = @lteNPDSCHIndices;
+                    chenum = 'NPDSCH';
+                    refnpdsch = doChannels(refnpdsch);
+
+                    if length(chset) > 1
+
+                       fidx = @(x)find(cellfun( @(y)any(y==x),{chset.NCCE}));
+
+                       contains0 = fidx(0);
+                       if length(contains0)<=1
+                           contains0 = [];
+                       end
+                       contains1 = fidx(1);
+                       if length(contains1)<=1
+                           contains1 = [];
+                       end
+                       conflict = unique([contains0 contains1]);
+
+                       if ~isempty(conflict)
+                        A=[chset(conflict).Type];
+                        B=string([chset(conflict).NCh]);
+                        warning('lte:channelConflict' ,'Channel allocation conflict in subframe %d between %s\b\b',sf,sprintf('%s #%s, ',[A;B]));
+                       end
+
+                    end
+
+                end     
+                
+                if rsneeded
+                    % NRS
+                    nrssymbols = NbNRS(enb);
+                    nrsindices = NbNRSIndices(enb);
+                    sfgrid(nrsindices) = nrssymbols;
+                end
+
+                % Write current subframe grid into the larger array 
+%                 grid(:,14*sf+1:14*(sf+1),:) = sfgrid;
+                grid = [grid sfgrid];        % bj:modify
+
+                sftypes(enb.NFrame*10+sf+1) = sftype;
+
+            end
+
+                %% Function local function to simplify variable sharing
+                function channelset = doChannels(channelset)
+
+                    % Move through all the NPDSCH
+                    for ic = 1:length(channelset)
+
+                        refch = channelset(ic);
+
+                        if strcmpi(refch.Enable,'On') && enb.NSubframe >= refch.StartSubframe && refch.SubframeIdx ~= 0
+
+                            % Test for subframe NOT being within a transmission gap (for non SI NPDSCH)
+                            % Gap occurs at beginning of gap period, and the gap length is a fraction of the period
+                            if (refch.Rmax < enb.DLGapThreshold) || (mod(sf,enb.DLGapPeriodicity) >= enb.DLGapPeriodicity*enb.DLGapDurationCoeff)
+
+                                % Get indices and channel capacity info
+                                [indices,info] = phychindices(enb,refch);  
+
+                                if refch.SubframeIdx < 0
+                                    refch.SubframeIdx = 0;
+
+                                    trblksize = refch.DataBlkSize;
+                                    datasource = vectorDataSource(refch.DataSource);
+                                    trblk = datasource.getPacket(trblksize);
+                                    cwlength = info.G;
+                                    trcw = trch(refch,cwlength,trblk); 
+
+                                    channelset(ic).Codeword = trcw;
+                                end
+
+                                trcw = channelset(ic).Codeword;
+                                [symbols,refch] = phych(enb,refch,trcw,refch);
+                                chpower = powerconv(refch.Power);               
+                                sfgrid(indices) = chpower*symbols;    
+
+                                % Latest channel type 
+                                sftype = NBIoTDownlinkWaveformGeneratorV3.Channels.(chenum); 
+
+                                nch.Type = sftype;
+                                nch.NCh = ic;
+                                if isfield(refch,'NCCE')
+                                    nch.NCCE = refch.NCCE;
+                                else
+                                    nch.NCCE = [0 1];
+                                end
+                                chset = [chset,nch]; %#ok<AGROW>
+
+                                % Update ongoing state back into parent array
+                                channelset(ic).SubframeIdx = refch.SubframeIdx;
+                                channelset(ic).InitNFrame = refch.InitNFrame;
+                                channelset(ic).InitNSubframe = refch.InitNSubframe;
+
+                            end
+                       end
+                    end  
+                end
+        end 
+ 
+   end
+   
+end
+
+% Create structure contain all channel type labels
+function s = getChannelList()
+    s.Not="Not NB-IoT";
+    s.None="Unused";
+    s.NPSS="NPSS";
+    s.NSSS="NSSS";
+    s.NPBCH="NPBCH";
+    s.NPDSCHSIB1="SIB1-NB";
+    s.NPDCCH="NPDCCH";
+    s.NPDSCH="NPDSCH";
+end
+
+%
+function table = getNSFTable
+    info = hNPDSCHInfo; 
+    table = info.NSFTable; % TS 36.213 Table 16.4.1.3-1: Number of subframes (NSF) for NPDSCH
+end
+
+function table = getNRepTable
+    info = hNPDSCHInfo; 
+    table = info.NRepTable; % TS 36.213 Table 16.4.1.3-2: Number of repetitions (NREP) for NPDSCH
+end
+
+function table = getTBSTable
+    info = hNPDSCHInfo; 
+    table = info.TBSTable; % TS 36.213 Table 16.4.1.5.1-1: Transport block size (TBS) table
+end
+
+function table = getSchedulingInfoNRepTable
+    info = hNPDSCHInfo; 
+    table = info.NRepTableSIB1; % TS 36.213 Table 16.4.1.3-3: Number of repetitions for NPDSCH carrying SystemInformationBlockType1-NB
+end
+
+function table = getSchedulingInfoTBSTable
+    info = hNPDSCHInfo; 
+    table = info.TBSTableSIB1; % TS 36.213 Table 16.4.1.5.2-1: Transport block size (TBS) table for NPDSCH carrying SystemInformationBlockType1-NB
+end
+
+
+
+% Convert a numerical or 'bitmap' character vector into a logical one   
+function bitmap = logicalBitmap(bitmap)
+
+    if ischar(bitmap)
+        bitmap = bitmap~='0';
+    else
+        bitmap = logical(bitmap);
+    end
+    
+end
+
+%vectorDataSource Create data vector source of given input vector or PN source
+function obj = vectorDataSource(sourcespec,initialstate)
+    
+    defaultseed = 1; % Flag to indicate default PN seed
+    if nargin == 0
+        % Zeros as default
+        sourcespec = 0;
+    end
+    
+    if isempty(sourcespec)
+       error('DataSource cannot be empty.') 
+    end
+    
+    if nargin < 2
+        % Zeros as default
+        initialstate = 0;
+    else
+        % seed specified by user
+        defaultseed = 0;
+    end
+        
+    % If the source is PN, sourcespec can be a character vector or a cell
+    % array {'PN9',seed} or {'PN9'} or 'PN9'
+    if iscell(sourcespec)
+        % {'PN9',seed} or {'PN9'} 
+        if numel(sourcespec) == 2
+            initialstate = sourcespec{2};
+            defaultseed = 0;
+        else
+            % If {'PN9'}, use default seed
+            defaultseed = 1;
+        end
+        sourcespec = sourcespec{1};
+        % Now source can only be PN source
+        if ~(ischar(sourcespec) || isstring(sourcespec))
+            error('The DataSource cell array input must be of the format {pnsource,seed} or {pnsource}');
+        end
+    end
+    
+    if ischar(sourcespec) || isstring(sourcespec)
+        switch upper(sourcespec)
+            case {'PN9-ITU','PN9'}
+                shiftreglength = 9;
+            case 'PN11'
+                shiftreglength = 11;
+            case 'PN15'
+                shiftreglength = 15;
+            case 'PN23'
+                shiftreglength = 23;
+            otherwise
+                error('The allowed DataSource strings are ''PN9-ITU'',''PN9'',''PN11'',''PN15'',''PN23''');
+        end
+                
+        % Set the initial seed to be all ones if not specified 
+        if defaultseed
+            initialstate = 2^shiftreglength-1;
+        end
+        
+        % Validate initial state - can only be positive integer or 0
+        if ~(isnumeric(initialstate) && isscalar(initialstate) ...
+                && ((initialstate >=0) && (initialstate <= 2^shiftreglength-1))) % Range validation
+           error('For %s, the seed must be an integer between 0 to %d',sourcespec,2^shiftreglength-1);
+        end
+    end
+    
+    currentstate = initialstate;
+  
+    % Public definition of class methods    
+    if ischar(sourcespec) || isstring(sourcespec)
+        obj.getPacket = @getPacketPN;
+    elseif isnumeric(sourcespec)
+        if currentstate >= length(sourcespec)
+            error('Invalid seed specified (%d) for vector input, must be 0 to %d', currentstate, length(sourcespec)-1);
+        end
+        obj.getPacket = @getPacket;
+    else
+        error('Invalid DataSource specified, must be vector or one of the PN strings (''PN9-ITU'',''PN9'',''PN11'',''PN15'',''PN23'')');
+    end
+    obj.reset = @reset;
+    
+    % Class 'Method' implementations
+    function bitsout = getPacket(psize)
+        
+          bitsout = zeros(psize,1);     
+          for i = 1:psize
+             bitsout(i) = sourcespec(currentstate+1);
+             currentstate=mod(currentstate+1,length(sourcespec));
+          end  
+    end
+
+    function bitsout = getPacketPN(psize)
+        
+        % Use UMTS mex function to generate the PN streams
+        % Note, if seed=0 then the source seed is randomized
+        [bitsout,currentstate] = fdd('FddSource',char(sourcespec),psize,currentstate);
+ 
+    end
+
+    function reset()
+        currentstate=initialstate;
+    end
+
+end
+          

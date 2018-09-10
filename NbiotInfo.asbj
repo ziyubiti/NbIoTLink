@@ -1,0 +1,12 @@
+% nbiot info generation
+% @ziyubiti
+% @20180621 
+
+function info = NbiotInfo()
+info = [];
+info.SamplingRate = 1920000;
+info.Nfft = 128;
+info.Windowing = 6;
+info.CyclicPrefixLengths = [10,9,9,9,9,9,9,10,9,9,9,9,9,9];
+
+end

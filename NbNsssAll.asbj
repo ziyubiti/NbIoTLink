@@ -1,0 +1,33 @@
+% nbiot Nsss local grid and time sequence 
+% @ziyubiti
+% @20180627
+
+function  [NsssAll,SeqNsssAll,indices] = NbNsssAll(enb)
+    NsssAll = zeros(132,4,504);
+    SeqNsssAll = zeros(1508,4,504);
+    nsssgrid = zeros(12,14,4,504);    
+    sfgrid = zeros(12,14);
+    
+    enb2 = enb;
+    enb2.NSubframe = 9;    
+    enb2.NFrame = 0;    
+    indices = NbNSSSIndices(enb2);
+    
+    for j = 0:503
+        enb2.NNCellID = j;
+        for i = 1:4
+            enb2.NFrame = (i-1)*2; 
+            sym = NbNSSS(enb2);
+            NsssAll(:,i,j+1) = sym;
+%             nsssgrid(indices) = sym;
+            sfgrid(indices) = sym;
+            nsssgrid(:,:,i,j+1) = sfgrid;
+%             indices = indices + size(nsssgrid,1)*size(nsssgrid,2);
+            [waveform] = NbModulate(sfgrid,0);
+            seq = waveform(413:end,1);
+            SeqNsssAll(:,i,j+1) = seq;
+            
+        end
+    end
+    
+end

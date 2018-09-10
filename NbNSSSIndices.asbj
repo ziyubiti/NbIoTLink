@@ -1,0 +1,38 @@
+% extract from nbiot class lib 
+% @20180621
+
+function indices = NbNSSSIndices(enb)
+           
+    % Since NSSS has a fixed schedule (subframe 9 in every other frame)
+    % only return indices if in that subframe
+    ns = enb.NSubframe;
+    if isfield(enb,'NFrame')
+        ns = ns + enb.NFrame*10; 
+    end
+    if mod(ns,20) ~= 9
+       indices = [];
+       return;
+    end
+    
+    grid = zeros(12,14);
+    
+    if any(strcmpi(enb.OperationMode,{'Inband-SamePCI','Inband-DifferentPCI'}))
+        if isfield(enb,'CellRefP') && ~isempty(enb.CellRefP) && (enb.CellRefP ~= 0)
+            % Locate max CRS locations within an LTE carrier grid
+            if ~isfield(enb,'NCellID')
+                enb.NCellID = enb.NNCellID;
+            end
+            enb.NDLRB = 6;
+            enb.CyclicPrefix = 'Normal';
+            enb.DuplexMode = 'FDD';
+            grid = lteResourceGrid(enb);
+            grid(lteCellRSIndices(enb)) = 1;
+            % Extract single resource block
+            grid = grid(1:12,:,:);
+        end
+    end
+
+    % Find NSSS indices, excluding the first 3 symbols
+    indices = find(sum(grid(:,4:end,:),3)==0) + 3*12;
+    
+end

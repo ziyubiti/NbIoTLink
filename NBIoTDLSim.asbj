@@ -1,0 +1,107 @@
+
+clear;
+clc;
+close all;
+
+%% step 1:NB-IoT Downlink common config, NPDCCH/NPDSCH Configuration, and Sim/Alg Configuration
+rc = 'R.NB.6';
+ngen = NBIoTDownlinkWaveformGeneratorV3(rc);   % bj : Class initialization
+ngen = SysParaSet(ngen);
+SimPara = SimParaSet();
+
+%% step 2: processing loop
+SNRIn = SimPara.Stat.Sinr;
+NumFrames = SimPara.Stat.NumFrames;
+enb = ngen.Config;
+channel = SimPara.channel;
+P = enb.NBRefP;
+
+for snrIdx = 1:numel(SNRIn)
+
+    rng(snrIdx,'combRecursive');
+    
+    SNRdB = SNRIn(snrIdx);
+    fprintf('\nSimulating at %gdB SNR for %d Frame(s)\n' ,SNRdB, NumFrames);
+    
+    bufferIQ = [];
+    for subframeNo = 0:(NumFrames*10-1)
+  
+        channel.Seed = 1+subframeNo;
+        
+        % Update subframe number and RadioFrame number
+        enb.GlobalSubframe = subframeNo;
+        enb.NSubframe = mod(subframeNo,10);
+        enb.NFrame = floor(subframeNo/10);       
+        
+        
+        %% step3: NB-IoT Downlink Waveform Generation
+        ngen.Config = enb;    
+        [Waveform,fdgrid,nbInfo] = ngen.generateWaveform;
+        txWaveform = [Waveform;zeros(25, P)];
+
+        figure;
+        plot(abs(txWaveform)); title('NB-IoT downlink waveform');
+        grid on;
+        
+        %% step 4: pass channel  
+        channel.InitTime = subframeNo/1000;   
+        if ~strcmpi(channel.DelayProfile,'Off')
+            rxWaveform = lteFadingChannel(channel, txWaveform);
+        else
+            rxWaveform = txWaveform;
+        end
+
+        SNR = 10^((SNRdB-enb.NPDSCH.Power)/20);
+        N0 = 1/(sqrt(2.0*enb.NBRefP)*SNR);       
+        noise = N0*complex(randn(size(rxWaveform)),randn(size(rxWaveform)));           
+        rxWaveform = rxWaveform + noise;
+
+        figure;
+        plot(abs(rxWaveform)); title('NB-IoT downlink waveform');
+        grid on;
+        
+       %% % Rx
+        
+        rxSignal = rxWaveform(1:nbInfo.SamplingRate/1000,:);
+         %% step 5:ICS
+        if strcmpi(SimPara.Alg.ICS.ICS_enable, 'On')            
+            bufferIQ = [bufferIQ ;rxSignal];            
+            if (mod(enb.GlobalSubframe,SimPara.Alg.ICS.buffer_window_lenth) == 0) && (enb.GlobalSubframe ~= 0)
+                [pcid,offset] = NbCellSearch(bufferIQ,enb,SimPara,nbInfo);
+                bufferIQ = [];
+            end
+        end
+        
+        %% step 6: rxGrid
+        rxGrid = lteNbDemodulate(rxSignal);
+        cec = SimPara.Alg.CEC;
+        [hest, nest] = NbDLChannelEstimate(enb, cec, rxGrid);
+        
+        if strcmpi(SimPara.Stat.PbchDetEnable,'On') && (enb.NSubframe == 0)
+            [MibData,PbchCrc] = NbPbchDetection(rxSignal,enb,SimPara);
+            
+        end
+        
+        
+        
+        
+    end
+end
+
+
+
+
+
+figure();
+scatter(real(fdgrid(:,74)),imag(fdgrid(:,74)));
+grid on;
+
+figure();
+scatter(real(fdgrid(:,130)),imag(fdgrid(:,130)));
+grid on;
+
+
+%
+
+
+

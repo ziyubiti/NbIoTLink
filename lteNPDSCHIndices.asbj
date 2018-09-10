@@ -1,0 +1,243 @@
+%lteNPDSCHIndices NPDSCH resource element indices
+%   [IND,INFO] = lteNPDSCHIndices(...) returns a matrix IND containing
+%   Narrowband Physical Downlink Shared Channel (NPDSCH) Resource Element
+%   (RE) indices, and structure INFO containing information related to the
+%   PDSCH indices. By default, the indices are returned in 1-based linear
+%   indexing form that can directly index elements of a three-dimensional
+%   array representing the subframe resource grid for all antenna ports.
+%
+%   [IND,INFO] = lteNPDSCHIndices(ENB,CHS) returns a matrix IND containing
+%   1-based NPDSCH Resource Element indices in linear form for cell wide
+%   settings ENB and ENB must be a structure including the fields:
+%   NNCellID          - Narrowband physical layer cell identity
+%   NBRefP            - Number of narrowband reference signal antenna ports
+%                       (1,2)
+%   OperationMode     - Optional. NB-IoT operation mode. ('Inband-SamePCI', 
+%                       'Inband-DifferentPCI', 'Guardband' or 'Standalone')
+%                       (default 'Standalone')
+%   CellRefP          - Optional. Number of cell-specific reference signal 
+%                       antenna ports. Only required when OperationMode = 
+%                       'Inband-DifferentPCI'. Must be equal to NBRefP
+%                       (default) or 4
+%   ControlRegionSize - Optional. LTE control region size, used to set 
+%                       starting OFDM symbol index (0-based) in a subframe
+%                       for NPDSCH (0...13). Only required when
+%                       OperationMode = 'Inband-SamePCI' or
+%                       'Inband-DifferentPCI', and CHS.NPDSCHDataType is
+%                       not equal to 'SIB1NB' (default 3)
+%
+%   Note that for the field CellRefP, when OperationMode =
+%   'Inband-SamePCI', it is set to NBRefP; when OperationMode = 'Guardband'
+%   or 'Standalone', it is ignored. For the field ControlRegionSize, when
+%   OperationMode = 'Inband-SamePCI' or 'Inband-DifferentPCI', and
+%   CHS.NPDSCHDataType = 'SIB1NB', the starting OFDM symbol index is set to
+%   3; when OperationMode = 'Guardband' or 'Standalone', the starting OFDM
+%   symbol index is set to 0.
+%
+%   CHS must be a structure including the field:
+%   NPDSCHDataType - Optional. The type of the data carried by NPDSCH.
+%                   ('NotBCCH'(default),'SIB1NB','BCCHNotSIB1NB')
+%   NSF            - Number of subframes that a codeword is mapped to (not
+%                    including repetitions). Only required when the second
+%                    output parameter, INFO, exists and NPDSCHDataType is
+%                    not equal to 'SIB1NB'
+%
+%   Note that for the field NSF, when INFO exists and NPDSCHDataType =
+%   'SIB1NB', it is set to 8; when INFO does not exist, it is ignored.
+%
+%   IND is an N-by-P matrix where each column contains per-antenna indices
+%   for the N resource elements in each of the P resource array planes.
+%   P=ENB.NBRefP. The indices can also be returned in a number of
+%   alternative indexing formats, using the OPTS argument described below.
+%
+%   INFO is a structure containing the fields:
+%   G  - Number of coded and rate matched DL-SCH data bits for a codeword
+%   Gd - Number of coded and rate matched DL-SCH data symbols per layer,
+%        equal to CHS.NSF multipled by the number of rows in the NPDSCH 
+%        indices
+%
+%   [IND,INFO] = lteNPDSCHIndices(ENB,CHS,OPTS) allows control of the
+%   contents and format of the returned indices through a space-separated
+%   list, string array or cell array of options, OPTS:
+%   'ind', 'sub'       - Linear indexing (default) or
+%                        in [subcarrier, symbol, antenna] subscript row
+%                        style where IND will then be a N-by-3 matrix
+%   '1based', '0based' - 1-based (default) or 0-based indices
+%   
+%   Example:
+%   % Generate the NPDSCH indices (0-based) mapping in linear index form
+%   % for 2 antenna case (hence 2 columns of indices).
+%   
+%   enb.NNCellID = 10;
+%   enb.NBRefP = 2;
+%   chs.NPDSCHDataType = 'SIB1NB';
+%   ind = lteNPDSCHIndices(enb,chs,{'0based','ind'});
+%   ind(1:7,:)
+%
+%   % The above example returns:
+%   %      0        168 
+%   %      1        169
+%   %      2        170
+%   %      3        171
+%   %      4        172
+%   %      5        173
+%   %      6        174
+%   %      ...
+%
+%   See also lteNRSIndices, ltePDSCHIndices.
+
+%   Copyright 2017 The MathWorks, Inc.
+
+function [ind, info] = lteNPDSCHIndices(enb,chs,varargin)
+
+    % Validate the number of input arguments
+    narginchk(2, 3); 
+    
+    if nargin < 3
+        opts = {'ind','1based'};
+    else
+        opts = varargin{1};
+    end
+    
+    % Validate the input parameters
+    [enb,chs] = validateInputs(enb,chs);
+    
+    % Assign or validate number of subframe if required 
+    if nargout == 2
+        if strcmpi(chs.NPDSCHDataType,'SIB1NB')
+            chs.NSF = 8;
+        else
+            chs = mwltelibrary('validateLTEParameters',chs,'NSF');
+        end
+    end
+    
+    % Use a matrix to mark the locations of the subframe resource elements
+    % associated with the input NPDSCH parameters
+    % 
+    % Start with a cleared subframe grid (single antenna, all planes will
+    % be projected onto this), then mark all the resource elements of the
+    % PRB of the NPDSCH in each slot, then clear all the resource elements
+    % of NRS.
+    sdims = [12 14 1];
+    subframegrid = ones(sdims(1), sdims(2));
+    nre = numel(subframegrid);
+
+    % Exclude NRS
+    nrsind = lteNRSIndices(enb);
+    nrsind = nrsind - 1;           % Convert to 0-based indices
+    pnrsind = mod(nrsind,nre);     % Project all the linear indices onto a single antenna 
+    subframegrid(pnrsind+1) = 0;   % Clear the NRS indices from the subframe 
+     
+    % Exclude CRS according to 36.211 10.2.6.2
+    if strcmpi(enb.OperationMode,'Inband-SamePCI') || strcmpi(enb.OperationMode,'Inband-DifferentPCI')   
+        % Same value for Inband-SamePCI, same shift for Inband-DifferentPCI
+        enb.NCellID = enb.NNCellID;
+        
+        % Define parameters for cell reference signals
+        enb.NDLRB = 6;
+        enb.CyclicPrefix = 'Normal'; 
+        enb.DuplexMode = 'FDD';
+         
+        crsind = lteCellRSIndices(enb,'0based');
+        pcrsind = mod(crsind,12*enb.NDLRB*14);
+        gridcrs = ones(12*enb.NDLRB,14);
+        gridcrs(pcrsind+1) = 0;
+        gridcrs = gridcrs(1:12,:);
+        subframegrid(gridcrs==0)=0;
+    end
+     
+    % Exclude the first enb.ControlRegionSize OFDM symbols
+    subframegrid(:,1:enb.ControlRegionSize) = 0;
+
+    % All the RE, that are still marked, are assigned to the NPDSCH
+    % (single column for one antenna)
+    ind = find(subframegrid);
+
+    % Expand into the other antenna planes (using implicit expansion
+    % to create a column per antenna) and make them 1-based
+    tpsize = [sdims(1:2) enb.NBRefP];
+    ind = ind + nre*(0:tpsize(3)-1);
+
+    % Update the 'info' fields 
+    if nargout == 2
+        gd = size(ind,1);
+        info.G = 2*gd*chs.NSF;      % Updated number of bits per codeword, for QSPK only
+        info.Gd = gd*chs.NSF;       % Updated number of symbols per layer
+    end
+
+    % Process the options, if present
+    if nargin>2
+
+        % Define the character vector sets that define the options
+        % Each row contains the character vectors for a single option
+        s = {'ind','sub'; '1based', '0based'};
+
+        % Ensure that all the input options are contained 
+        % in a single space separated character vector
+        if iscell(opts)
+            sopts = sprintf('%s ',opts{:});
+        elseif isstring(opts)
+            % String input support
+            sopts = [];
+            for i = 1:length(opts)
+                sopts = [sopts,char(opts(i)),' ']; %#ok<AGROW>
+            end
+        else
+            sopts = opts;
+        end
+
+        % Find the selected options
+        V = regexpi(sopts,s,'once');
+        [V{cellfun('isempty',V)}] = deal(length(sopts)+1);
+        [~,I] = min(cell2mat(V),[],2);
+        selected = s(sub2ind(size(s),1:size(s),I'));
+
+        % If signaled by 'sub', turn the default linear indices into
+        % subscripts
+        if strcmp(selected(1),'sub')
+            [subs{1:3}] = ind2sub(tpsize,ind(:));
+            ind = cell2mat(subs);
+        end
+        % If signaled by '0based', turn the default 1-based indices/sub
+        % into 0-based ones
+        if strcmp(selected(2),'0based')
+            ind = ind-1;
+        end
+
+    end
+
+end
+
+function [enb,chs] = validateInputs(enb,chs)
+
+    % Validate the fields in eNodeB structure
+    enb = mwltelibrary('validateLTEParameters',enb,'OperationMode','NBRefP','NNCellID');
+    
+    % Validate the field NPDSCHDataType in NPDSCH structure
+    chs = mwltelibrary('validateLTEParameters',chs,'NPDSCHDataType');
+    
+    % Validate or assign the number of CRS ports
+    if strcmpi(enb.OperationMode,'Inband-SamePCI')
+        enb.CellRefP = enb.NBRefP;
+    elseif strcmpi(enb.OperationMode,'Inband-DifferentPCI')
+        if isfield(enb,'CellRefP')
+            if ~(enb.CellRefP == enb.NBRefP || enb.CellRefP == 4)
+                error('lte:error','For the parameter field CellRefP, the value (%d) must be either equal to parameter field NBRefP (%d) or 4.',enb.CellRefP,enb.NBRefP);
+            end
+        else
+            enb.CellRefP = enb.NBRefP;
+            lte.internal.defaultValueWarning('CellRefP',num2str(enb.NBRefP));
+        end
+    end
+    
+    % Validate or assign the starting OFDM symbol index for NPDSCH
+     if strcmpi(chs.NPDSCHDataType,'SIB1NB') && ...
+             (strcmpi(enb.OperationMode,'Inband-SamePCI') || strcmpi(enb.OperationMode,'Inband-DifferentPCI'))
+         enb.ControlRegionSize = 3;
+     elseif strcmpi(enb.OperationMode,'Guardband') || strcmpi(enb.OperationMode,'Standalone')
+         enb.ControlRegionSize = 0;
+     else
+         enb = mwltelibrary('validateLTEParameters',enb,'ControlRegionSize');
+     end
+    
+end

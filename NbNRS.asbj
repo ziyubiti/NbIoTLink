@@ -1,0 +1,54 @@
+% extract from nbiot class lib 
+% @20180621
+
+function sym = NbNRS(enb,ports)
+    
+    if nargin == 1
+        if enb.NBRefP == 1
+            ports = 0;
+        else
+            ports = [0 1];
+        end
+    end
+
+    % Verify eNB config
+    if enb.NBRefP > 2
+        error('NB-IoT only supports a maximum of 2 antenna ports, set NBRefP to be <=2');
+    end
+
+    NDLsymb = 7;
+    Ncp = 1;
+    nprb = 1;
+
+    % Verify antenna ports
+    if ~isnumeric(ports)
+        error('Ports must be numeric.');
+    end
+    ports = round(ports);
+    for n=1:length(ports)
+        if ~(ports(n)>=0 && ports(n)<=(enb.NBRefP-1))
+            error(['Ports should be within [0, ' int2str(enb.NBRefP-1) '].']);
+        end
+    end
+
+    NmaxDLRB = 110; %N^{max, DL}_RB
+    mvec = 0:2*nprb-1;
+    sym = [];
+    r = zeros(2*NmaxDLRB,1);
+    NSubframe = mod(enb.NSubframe,10); % 0-9
+    for ns = 2*NSubframe:2*NSubframe+1 % slot number 0-19
+        for l = [NDLsymb-2 NDLsymb-1] % OFDM symbol number within the slot
+            cinit = 2^10*(7*(ns+1)+l+1)*(2*enb.NNCellID+1)+2*enb.NNCellID+Ncp;
+            c = ltePRBS(cinit,2*NmaxDLRB+2);
+            for m = NmaxDLRB-1:NmaxDLRB
+                r(m+1) = (1-2*c(2*m+1)+1i*(1-2*c(2*m+2)))/sqrt(2);
+            end
+            sym = [sym; r(mod(mvec,2)+NmaxDLRB)]; %#ok<AGROW>
+        end
+    end
+
+    if length(ports) == 2
+        sym = repmat(sym,[2 1]);
+    end
+    
+end

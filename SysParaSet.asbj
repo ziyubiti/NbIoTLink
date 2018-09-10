@@ -1,0 +1,92 @@
+% nbiot cell specific para set , extract from class object 
+% by ziyubiti
+% @20180621 
+
+function ngen = SysParaSet(ngen)
+
+%% step 1:NB-IoT Downlink common config
+ngen.Config.TotSubframes = 1;
+ngen.Config.NSubframe = 5;                             % start subframe, will update per loop, 0-9
+ngen.Config.NNCellID = 0;
+ngen.Config.NBRefP = 1;
+ngen.Config.NFrame = 0;                                 % start Frame Number, only initialtion and will update per loop,0-1023
+ngen.Config.DLGapThreshold = 32;                        %(32,64,128,256)
+ngen.Config.DLGapPeriodicity = 64;                      %(64,128,256,512 subframes)
+ngen.Config.DLGapDurationCoeff = 0.125;                 %(1/8, 1/4, 3/8, 1/2)
+ngen.Config.CellRefP = 4;                               % in-band only;
+ngen.Config.ControlRegionSize = 3;                      % in-band only
+ngen.Config.CarrierType = 'Anchor';                     % Anchor or NonAnchor
+ngen.Config.OperationMode = 'Standalone';               %('Inband-SamePCI','Inband-DifferentPCI','Guardband','Standalone')
+ngen.Config.DownlinkBitmap = [1 1 1 1 1 1 1 1 1 1];
+
+
+% nsfTable = ngen.NSFTable                  % Display number of subframe table in TS 36.213 16.4.1.3 
+% enbConfig = ngen.Config                   % Display NB-IoT eNodeB configuration
+% npbchConfig = ngen.Config.NPBCH           % Display NPBCH configuration
+% sib1npdschConfig = ngen.Config.SIB1NPDSCH % Display the configuration of NPDSCH when carrying SIB1-NB
+
+
+% cofig SIB1
+ngen.Config.SIB1NPDSCH.Enable = 'On';
+ngen.Config.SIB1NPDSCH.NRep = 4;           % 4/8/16
+ngen.Config.SIB1NPDSCH.DataBlkSize = 208;
+
+% no NPDCCH/NPDSCH
+ngen.Config.NPDCCH.Enable = 'Off';
+ngen.Config.NPDSCH.Enable = 'Off';
+
+%% step 2:NPDCCH/NPDSCH Configuration
+
+% Configure the parameters of the first NPDCCH
+npdcch1.Enable = 'On';
+npdcch1.Power = 0;
+npdcch1.NCCE = 1;  % NPDCCH format 0 with NCCE 1
+npdcch1.NRep = 2;
+npdcch1.Rmax = 16;
+npdcch1.RNTI = 0;
+npdcch1.StartSubframe = 0;
+npdcch1.DataBlkSize = 23;
+npdcch1.DataSource = randi([0 1],npdcch1.DataBlkSize,1); % Users can define their own information bits
+
+% Configure the parameters of the second NPDCCH
+npdcch2.Enable = 'On';
+npdcch2.Power = 0;
+npdcch2.NCCE = 0;  % NPDCCH format 0 with NCCE 0
+npdcch2.NRep = 4;
+npdcch2.Rmax = 16;
+npdcch2.RNTI = 1;
+npdcch2.StartSubframe = 3;
+npdcch2.DataBlkSize = 23;
+npdcch2.DataSource = 'PN9';
+
+% Configure the parameters of the first NPDSCH
+npdsch1.Enable = 'On';
+npdsch1.Power = 0;
+npdsch1.NPDSCHDataType = 'BCCHNotSIB1NB';
+npdsch1.NSF = 3;
+npdsch1.NRep = 2;
+npdsch1.Rmax = npdcch1.Rmax;
+npdsch1.RNTI = 0;
+npdsch1.StartSubframe = 10;
+npdsch1.DataBlkSize = 616;
+npdsch1.DataSource = 'PN15';
+
+% Configure the parameters of the second NPDCCH
+npdsch2.Enable = 'On';
+npdsch2.Power = 0;
+npdsch2.NPDSCHDataType = 'NotBCCH';
+npdsch2.NSF = 2;
+npdsch2.NRep = 4;
+npdsch2.Rmax = npdcch2.Rmax;
+npdsch2.RNTI = 1;
+npdsch2.StartSubframe = 20;
+npdsch2.DataBlkSize = 616;
+npdsch2.DataSource = 'PN23';
+
+% Prepare NPDSCH and PDCCH structure vectors
+% ngen.Config.NPDCCH = [npdcch1 npdcch2];
+% ngen.Config.NPDSCH = [npdsch1 npdsch2];
+
+
+
+end

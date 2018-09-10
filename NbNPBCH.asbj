@@ -1,0 +1,55 @@
+% extract from nbiot class lib 
+% @20180621 
+
+function symbols = NbNPBCH(enb,cw)
+     
+    if length(cw) ~= 1600
+       error('NPBCH codeword must be 1600 bits in length')
+    end
+    
+    % Codeword is split into 8 sub-blocks, and each sub-block is transmitted 8 times in sf0 of 8 consecutive frames, 
+    % thus overall periodicity is 64 frames
+    
+    % Codeword is transmitted over 8 subframes
+    bitspersf = 200;
+      
+    % If processing symbols for transmission in a subframe 0 then
+    % Establish sub-block of codeword (input codeword would be 1600 bits (800 symbols) nominally for 640ms TTI)
+    % Since each sf0 contains 1/8 sub-block, this translates to 200 bits (100 symbols)
+    
+    % Establish 1st scrambling sequence 
+    % 1st scrambling is done over full 1600 bits, which will be mapping into 64 subframe 0's. 
+    % Fixed sequence, dependent on NNCellID, only, and repeated every full repetition.
+      
+    ns = enb.NSubframe;
+    if isfield(enb,'NFrame')
+        ns = ns + enb.NFrame*10; 
+    end
+    
+    nf = fix(ns/10);
+    id = enb.NNCellID;
+      
+    % Perform 1st stage scrambling
+    nf8 = mod(fix(nf/8),8);
+    cinit = id;
+    prbs = ltePRBS(cinit,[bitspersf*nf8,bitspersf]);
+    dblock = cw(bitspersf*nf8+1:bitspersf*(nf8+1));
+    scrambled = xor(prbs,dblock(:));
+        
+    % QPSK modulation 
+    symbols = lteSymbolModulate(scrambled,'QPSK');
+   
+    % Layer mapping and precoding
+    if enb.NBRefP > 1
+        symbols = lteLayerMap(symbols,enb.NBRefP,'TxDiversity');
+        symbols = lteDLPrecode(symbols,enb.NBRefP,'TxDiversity');
+    end
+    
+    % Perform 2nd stage scrambling
+    cinit = (id+1)*(mod(nf,8)+1)^3 * 2^9  + id;
+    prbs = ltePRBS(cinit,length(symbols)*2);
+    sidx = sum(reshape(prbs,[2,length(prbs)/2])'.*[2 1],2);
+    mset = [1; -1; 1i; -1i];
+    symbols = symbols.*mset(sidx+1);
+  
+end

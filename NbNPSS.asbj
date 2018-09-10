@@ -1,0 +1,28 @@
+% extract from nbiot class lib 
+% @20180621
+
+function sym = NbNPSS(enb)
+    
+    % Since NPSS has a fixed schedule (subframe 5 in every frame)
+    % only return indices if in that subframe
+    if mod(enb.NSubframe,10) ~= 5
+        sym = [];
+        return;
+    end
+       
+    % Basic Zadoff Chu sequence
+    u = 5;
+    N = 11;
+    m = 0:N-1;
+    seq = exp(-1i*pi*u*m.*(m+1)/N);
+    
+    % Symbol covers (S(3)...S(13))
+    S = [0 0 0 1 1 1 1 -1 -1 1 1 1 -1 1];
+    
+    % Column expand into a subframe grid matrix
+    grid = [seq 0].'.*S;
+    
+    % Extract mapped symbols only
+    sym = grid(NbNPSSIndices(enb));
+   
+end

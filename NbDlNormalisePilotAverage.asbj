@@ -1,0 +1,38 @@
+% nbiot nrs channel estimation 
+% @ziyubiti
+% @20180727
+
+function [avgGrid, scalingVec] = NbDlNormalisePilotAverage(cec,p_est,reGrid)
+
+    nPilots = length(p_est);
+    avgGrid = zeros(size(reGrid));
+    scalingVec = zeros(1,size(p_est,2));
+
+    sc = p_est(1,:)';
+    sym = p_est(2,:)';
+    
+    half_freq_window = floor(cec.FreqWindow/2);
+    half_time_window = floor(cec.TimeWindow/2);
+    
+    upperSC = sc-half_freq_window;
+    upperSC(upperSC<1) = 1;
+
+    lowerSC =  sc+half_freq_window;
+    lowerSC(lowerSC>size(reGrid,1)) = size(reGrid,1);
+    
+    leftSYM = sym-half_time_window;
+    leftSYM(leftSYM<1) = 1;
+
+    rightSYM = sym+half_time_window;
+    rightSYM(rightSYM>size(reGrid,2)) = size(reGrid,2);  
+    
+    for n = 1:nPilots
+        scalingVec(n) = sum(sum(reGrid(upperSC(n):lowerSC(n),leftSYM(n):rightSYM(n))~=0));
+    end
+    
+    scalingVec(scalingVec==0) = 1;
+    pind = sub2ind(size(reGrid),sc,sym);
+    avgGrid(pind) = reGrid(pind)./scalingVec.';   
+
+end
+

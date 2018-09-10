@@ -1,0 +1,339 @@
+%lteNPDSCHDecode NB-IoT physical downlink shared channel decoding
+%   [CW,STATEOUT,SYMBOLS] = lteNPDSCHDecode(...) returns a column vector
+%   CW of soft bit vectors (codeword), a structure STATEOUT of decoding
+%   state and a vector SYMBOLS of received constellation symbol vectors
+%   resulting from performing the inverse of NB-IoT Physical Downlink
+%   Shared Channel (NPDSCH) processing (TS 36.211 10.2.3, see
+%   <a href="matlab:help('lteNPDSCH')">lteNPDSCH</a> for details). CW is optionally scaled by channel state
+%   information (CSI) calculated during the equalization process.
+%
+%   [CW,STATEOUT,SYMBOLS] = lteNPDSCHDecode(ENB,CHS,SYM) performs the
+%   inverse of NB-IoT Physical Downlink Shared Channel (NPDSCH) processing
+%   on the matrix of complex modulated NPDSCH symbols SYM, cell-wide
+%   settings structure ENB and channel-specific configuration structure
+%   CHS. The channel inverse processing includes the deprecoding, layer
+%   demapping, soft demodulation, descrambling and codeword recovery.
+%   The deprecoding is performed using matrix pseudo inversion of the
+%   precoding matrices.
+%
+%   ENB must be a structure including the fields:  
+%   NNCellID        - NB-IoT physical layer cell identity
+%   NSubframe       - Subframe number
+%   NFrame          - Optional. Frame number (default 0)
+%   NBRefP          - Number of narrowband reference signal (NRS) antenna  
+%                     ports (1,2)
+%
+%   CHS must be a structure including the fields:
+%   NPDSCHDataType - Optional. The type of the data carried by NPDSCH.
+%                   ('NotBCCH'(default),'SIB1NB','BCCHNotSIB1NB')
+%   NSF            - Number of subframes that a codeword is mapped to (not
+%                    including repetitions). Only required when
+%                    NPDSCHDataType is not equal to 'SIB1NB'
+%   NRep           - Number of repetitions
+%   RNTI           - Radio Network Temporary Identifier (16-bit). Only 
+%                    required when NPDSCHDataType is not equal to 'SIB1NB'
+%   CSI            - Optional. Determines if soft bits should be weighted
+%                    by CSI ('On'(default),'Off')
+%
+%   Note that when NPDSCHDataType = 'SIB1NB', NSF is set to 8 and RNTI is
+%   set to 65535 (SI-RNTI).
+%
+%   [CW,STATEOUT,SYMBOLS] = lteNPDSCHDecode(ENB,CHS,SYM,STATEIN) performs
+%   the inverse of NPDSCH processing with decoder state STATEIN.
+%
+%   STATEIN is an optional input structure which can input the current
+%   decoder state of a transport block. If STATEIN contains a non-empty
+%   field CWBuffer then this field should contain a vector representing the
+%   LLR soft buffer states for the recovered codeword, i.e. after explicit
+%   descrambling. The updated buffer after decoding are returned in the
+%   CWBuffer field in the output parameter STATEOUT. The STATEIN structure
+%   would normally be generated and recycled from the STATEOUT of previous
+%   calls to lteNPDSCHDecode as part of the bundle reception.
+%
+%   STATEOUT is a structure containing output decoder state for the next
+%   subframe in the following fields:
+%   SubframeIdx   - 0-based index of a subframe in a bundle, used to get
+%                   its descrambled codeword bits. (0...NSF-by-NRep-1)
+%   InitNSubframe - Subframe number for scrambling sequence initialization
+%                   in the current subframe
+%   InitNFrame    - Frame number for scrambling sequence initialization in 
+%                   the current subframe
+%   CWBuffer      - Buffer used to store the soft-combined LLR bits after
+%                   descrambling for a codeword
+%   CWSFCount     - Counters for the number of repetitions received
+%                   in the CWBuffer for all the CHS.NSF subframes of a
+%                   codeword. The counters is a vector with size
+%                   CHS.NSF-by-1
+%   EndOfCW       - Indicator of whether all subframes in a codeword has
+%                   been received for at least once (true or false)
+%   EndOfTx       - Indicator of whether the transmission of all subframes
+%                   in a bundle is complete (true or false)
+%
+%   Further explanations for the above paramters:
+%   The output SubframeIdx in STATEOUT is equal to its input in STATEIN
+%   increased by 1, and it wraps around to 0 when reaching the maximum
+%   value. If there is no input in STATEIN, the default input is 0. An
+%   output value 0 indicates all subframes in a bundle have been received
+%   and stored in CWBuffer, i.e., output EndOfTx is TRUE. For InitNSubframe
+%   and InitNFrame, in the case the subframe under processing is at the
+%   scrambling sequence initialization point, they are equal to NSubframe
+%   and NFrame in ENB, respectively. In the case the subframe is not at the
+%   initialization point, they are equal to the inputs in STATEIN if the
+%   inputs exist, respectively, otherwise, InitNSubframe is equal to
+%   ENB.NSubframe and InitNFrame is 0. CWBuffer, CWSFCount, EndOfCW and
+%   EndOfTx are reset in the function at the beginning of a bundle.
+%
+%   SYM must be a matrix of NRE-by-NRxAnts complex modulated NPDSCH
+%   symbols. NRE is the number of QPSK per antenna assigned to the NPDSCH
+%   per subframe and NRxAnts is the number of receive antennas.
+%
+%   [CW,STATEOUT,SYMBOLS] = lteNPDSCHDecode(ENB,CHS,SYM,HEST,NOISEEST)
+%   performs the decoding of the complex modulated NPDSCH symbols SYM using
+%   cell-wide settings ENB, channel-specific configuration CHS, channel
+%   estimate HEST and the noise estimate NOISEEST. For the TxDiversity
+%   transmission scheme (NBRefP = 2) the deprecoding is performed using an
+%   OSFBC (Orthogonal Space Frequency Block Code) decoder; For the Port0
+%   transmission scheme (NBRefP = 1) the reception is performed using MMSE
+%   equalization; the input channel estimate HEST is assumed to be with
+%   reference to the transmission layer (using the NRS) so the MMSE
+%   equalization will produce MMSE equalized layer.
+%
+%   [CW,STATEOUT,SYMBOLS] =
+%   lteNPDSCHDecode(ENB,CHS,SYM,HEST,NOISEEST,STATEIN) performs the inverse
+%   of NPDSCH processing with decoder state STATEIN.
+%
+%   HEST is a 3-dimensional NRE-by-NRxAnts-by-NBRefP array for the Port0,
+%   TxDiversity transmission schemes, where NRE is the number of QPSK
+%   symbols per antenna assigned to the NPDSCH per subframe, NRxAnts is the
+%   number of receive antennas, and NBRefP is the number of NRS antenna
+%   ports, given by ENB.NBRefP.
+%
+%   NOISEEST is an estimate of the noise power spectral density per RE on
+%   the received subframe.
+%
+%   Example:
+%   % Generate and receive the NPDSCH symbols subframe by subframe for a 
+%   % bundle consists of 12 subframes. The value of the field CWSFCount in
+%   % final output structure dstate indicates all the chs.NSF (3) subframes 
+%   % in the codeword has been received for chs.NRep (4) times. 
+%
+%   enb.NNCellID = 0;
+%   enb.NBRefP = 1;
+%   chs.NSF = 3;
+%   chs.NRep = 4;
+%   chs.RNTI = 0;
+%   chs.NPDSCHDataType = 'NotBCCH';
+%   cwLen = 960;
+%   estate = []; % No encoder state provided at the start of a bundle
+%   dstate = []; % No decoder state provided at the start of a bundle 
+%   cw = ones(cwLen,1); % Codeword bits
+%   for subframeIdx = 0:(chs.NSF*chs.NRep-1)
+%      enb.NSubframe = subframeIdx;
+%      [sym,estate] = lteNPDSCH(enb,chs,cw,estate);
+%      [rxcw,dstate] = lteNPDSCHDecode(enb,chs,sym,dstate);
+%   end
+%   dstate.EndOfTx
+%   dstate.CWSFCount
+%
+%   % The above example returns: 
+%   % logical
+%   % 1  
+%   %
+%   % 4
+%   % 4
+%   % 4
+%
+%   See also lteNPDSCH, lteNPDSCHIndices, lteNDLSCHDecode, ltePDSCHDecode.
+
+%   Copyright 2017 The MathWorks, Inc.
+
+function [cw,dstate,symCombining] = lteNPDSCHDecode(enb,npdsch,npdschSymbols,varargin)
+
+    % Validate the number of input arguments
+    narginchk(3, 6);
+    
+    % Prepare deooder state
+    if nargin == 3 || nargin == 5
+       dstate = [];
+    elseif nargin == 4 || nargin == 6
+       dstate = varargin{nargin-3};
+    end
+    
+    % Validate the input parameters
+    [enb,npdsch,dstate] = validateInputs(enb,npdsch,dstate);
+    
+    % Obtain transmission scheme for configuring lteLayerMap and
+    % lteDLPrecode, it falls back to single port in the single port case
+    TxScheme = 'TxDiversity';
+    
+    % To handle the case when the parameter field NSF or NRep is zero, or
+    % the received NPDSCH symbol is empty
+    if npdsch.NSF == 0 || npdsch.NRep == 0 || isempty(npdschSymbols)
+        if isfield(dstate,'CWBuffer')
+            cw = dstate.CWBuffer;
+        else
+            cw = [];
+        end
+        symCombining = [];
+        return;
+    end
+
+    if nargin == 3 || nargin == 4
+
+        % Deprecode
+        rxDeprecoded = lteDLDeprecode(npdschSymbols,enb.NBRefP,TxScheme,0);
+
+        % Layer demapping
+        symCombining = lteLayerDemap(rxDeprecoded,1,TxScheme);
+        symCombining = symCombining{1};
+        csi = ones(size(symCombining));
+
+    elseif nargin == 5 || nargin == 6
+        
+        % Get channel and noise power estimate
+        hest=varargin{1};         
+        noiseEst=varargin{2};
+
+        % Perform deprecoding and layer demapping 
+        if enb.NBRefP == 2
+
+            % OSFBC decoding
+            [symCombining,csi] = lteTransmitDiversityDecode(npdschSymbols,hest);
+
+        else
+            % MMSE for single antenna
+            [npdschRx,csi] = lteEqualizeMMSE(npdschSymbols,hest,noiseEst);               
+            rxDeprecoded = lteDLDeprecode(npdschRx,enb.NBRefP,TxScheme);
+            
+            % Layer demapping.
+            symCombining = lteLayerDemap(rxDeprecoded,1,TxScheme);
+            symCombining = symCombining{1};
+            csi = lteLayerDemap(csi,1,TxScheme);
+            csi = csi{1};
+        end      
+
+    end
+
+    % Number of available bits per subframe, QPSK
+    G = 2*length(symCombining);
+    
+    % Reset cw buffer and its related counters
+    if ~isfield(dstate,'CWBuffer') || isempty(dstate.CWBuffer) || ...
+         ~isfield(dstate,'CWSFCount') || ...
+         ~isfield(dstate,'EndOfCW') || ...
+         ~isfield(dstate,'EndOfTx') || ...
+         dstate.EndOfTx
+         dstate = resetCWStates(G,npdsch.NSF,dstate);
+    end
+
+    % Soft demodulation of received symbols
+    demodpdschSymb = lteSymbolDemodulate(symCombining,'QPSK','Soft'); 
+
+    % Calculate CSI
+    if ~isempty(symCombining)
+       Qm=length(demodpdschSymb)/length(symCombining);
+       csi=repmat(csi.',Qm,1);
+       csi=reshape(csi,numel(csi),1);
+    end
+    
+    % Get codeword portion index cwportionIdx
+    if strcmpi(npdsch.NPDSCHDataType,'NotBCCH')
+        NRepMin = min(npdsch.NRep, 4); % Initial number of repetitions
+        NotBCCH = true;
+    else % Carrying BCCH ('SIB1NB' or 'BCCHNotSIB1NB')
+        NRepMin = 1;
+        NotBCCH = false;
+    end
+    cwportionIdx = mod(floor(dstate.SubframeIdx/NRepMin),npdsch.NSF);
+    
+    % Get scrambling sequence initialization value cinit
+    if mod(dstate.SubframeIdx,NRepMin*npdsch.NSF) == 0
+         % Update frame and subframe numbers in dstate
+         dstate.InitNSubframe = enb.NSubframe;
+         dstate.InitNFrame = enb.NFrame;
+    end
+    nframe = dstate.InitNFrame + fix(dstate.InitNSubframe/10);
+    nsubframe = mod(dstate.InitNSubframe,10);
+    if NotBCCH
+        cinit = 2^14*npdsch.RNTI+mod(nframe,2)*2^13+nsubframe*2^9+enb.NNCellID;
+    else % Carrying BCCH ('SIB1NB' or 'BCCHNotSIB1NB')
+        cinit = 2^15*npdsch.RNTI+(enb.NNCellID+1)*(mod(nframe,61)+1);
+    end
+
+    % Codeword portion counter
+    dstate.CWSFCount(cwportionIdx+1) = dstate.CWSFCount(cwportionIdx+1)+1;
+    if length(find(dstate.CWSFCount>=1))==length(dstate.CWSFCount) 
+        dstate.EndOfCW = true;
+    end
+
+    % Generate scrambling sequence for a subframe and perform descrambling
+    scrambleSeq = ltePRBS(cinit,[cwportionIdx*G G],'signed');
+    cwportion = demodpdschSymb.*scrambleSeq;
+
+    % Scaling LLRs by CSI if enabled
+    if (strcmpi(npdsch.CSI,'On'))    
+        cwportion = cwportion.*csi;
+    end
+
+    % Put the portion of the descrambled codeword into the buffer and use
+    % it as the output
+    dstate.CWBuffer(1+G*cwportionIdx:(cwportionIdx+1)*G) = ...
+        dstate.CWBuffer(1+G*cwportionIdx:(cwportionIdx+1)*G) + cwportion;
+    cw = dstate.CWBuffer;
+
+    % Update subframe index
+    dstate.SubframeIdx = dstate.SubframeIdx + 1;
+    if dstate.SubframeIdx == npdsch.NSF*npdsch.NRep
+       dstate.SubframeIdx = 0;
+       dstate.EndOfTx = true;
+    end
+     
+end
+
+% Flush codeword buffer and initialize its counters and flag
+function dstate = resetCWStates(G,NSF,dstate)
+     dstate.CWBuffer = zeros(G*NSF,1);
+     dstate.CWSFCount = zeros(NSF,1);
+     dstate.EndOfCW = false;
+     dstate.EndOfTx = false;
+end
+
+% Validate the input parameters
+function [enb,chs,dstate] = validateInputs(enb,chs,dstate)
+
+    % Validate the fields in eNodeB structure
+    enb = mwltelibrary('validateLTEParameters',enb,'NSubframe','NFrame','NBRefP','NNCellID');
+
+    if isempty(dstate)
+       dstate = struct();
+    end
+    
+    % Reset subframe index
+    if ~isfield(dstate,'SubframeIdx')
+       dstate.SubframeIdx = 0;
+    end
+    
+    % Validate the subframe number field in dstate
+    dstate = mwltelibrary('validateLTEParameters',dstate,'InitNFrame','optionalnowarning');
+    
+    % Validate the subframe number field in dstate when it exists. If it
+    % doesn't, use the same field from enb.
+    if isfield(dstate,'InitNSubframe')
+        dstate = mwltelibrary('validateLTEParameters',dstate,'InitNSubframe');
+    else
+        dstate.InitNSubframe = enb.NSubframe;
+    end
+
+    % Validate the fields in NPDSCH structure
+    chs = mwltelibrary('validateLTEParameters',chs,'NPDSCHDataType');
+    if strcmpi(chs.NPDSCHDataType,'SIB1NB')
+        % Hardwire NSF and RNTI for NPDSCH carrying SIB1-NB 
+        chs.NSF = 8; 
+        chs.RNTI = 65535; % SI-RNTI
+    end
+    chs = mwltelibrary('validateLTEParameters',chs,'NSF','NRep','RNTI');
+    
+    % Provide default value for CSI field if absent
+    chs = mwltelibrary('validateLTEParameters',chs,'CSI','optionalnowarning');
+    
+end

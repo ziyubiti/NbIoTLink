@@ -1,0 +1,45 @@
+% extract from nbiot class lib 
+% @ziyubiti
+% @20180621
+
+function sym = NbNSSS(enb)
+        
+    % Since NSSS has a fixed schedule (subframe 9 in every other frame)
+    % only return indices if in that subframe
+    ns = enb.NSubframe;
+    if isfield(enb,'NFrame')
+        ns = ns + enb.NFrame*10; 
+    end
+    if mod(ns,20) ~= 9
+       sym = [];
+       return;
+    end
+    
+    nf = fix(ns/10);
+    
+    % Basic Zadoff Chu sequence
+    u = mod(enb.NNCellID,126) + 3;
+    q = fix(enb.NNCellID/126);
+    N = 131;
+    theta = 33/132 * mod(nf/2,4);
+    n = 0:N;
+    nd = [0:N-1 0];
+    seq = exp(-1i*pi*(2*theta*n + u*nd.*(nd+1)/N));
+
+    % Binary sequence
+    bseq = [
+    [1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1]
+    [1  -1  -1  1  -1  1  1  -1  -1  1  1  -1  1  -1  -1  1  -1  1  1  -1  1  -1  -1  1  1  -1  -1  1  -1  1  1  -1  1  -1  -1  1  -1  1  1  -1  -1  1  1  -1  1  -1  -1  1  -1  1  1  -1  1  -1  -1  1  1  -1  -1  1  -1  1  1  -1  1  -1  -1  1  -1  1  1  -1  -1  1  1  -1  1  -1  -1  1  -1  1  1  -1  1  -1  -1  1  1  -1  -1  1  -1  1  1  -1  1  -1  -1  1  -1  1  1  -1  -1  1  1  -1  1  -1  -1  1  -1  1  1  -1  1  -1  -1  1  1  -1  -1  1  -1  1  1  -1]
+    [1  -1  -1  1  -1  1  1  -1  -1  1  1  -1  1  -1  -1  1  -1  1  1  -1  1  -1  -1  1  1  -1  -1  1  -1  1  1  -1  -1  1  1  -1  1  -1  -1  1  1  -1  -1  1  -1  1  1  -1  1  -1  -1  1  -1  1  1  -1  -1  1  1  -1  1  -1  -1  1  1  -1  -1  1  -1  1  1  -1  -1  1  1  -1  1  -1  -1  1  -1  1  1  -1  1  -1  -1  1  1  -1  -1  1  -1  1  1  -1  -1  1  1  -1  1  -1  -1  1  1  -1  -1  1  -1  1  1  -1  1  -1  -1  1  -1  1  1  -1  -1  1  1  -1  1  -1  -1  1]
+    [1  -1  -1  1  -1  1  1  -1  -1  1  1  -1  1  -1  -1  1  -1  1  1  -1  1  -1  -1  1  1  -1  -1  1  -1  1  1  -1  -1  1  1  -1  1  -1  -1  1  1  -1  -1  1  -1  1  1  -1  1  -1  -1  1  -1  1  1  -1  -1  1  1  -1  1  -1  -1  1  -1  1  1  -1  1  -1  -1  1  1  -1  -1  1  -1  1  1  -1  1  -1  -1  1  -1  1  1  -1  -1  1  1  -1  1  -1  -1  1  1  -1  -1  1  -1  1  1  -1  -1  1  1  -1  1  -1  -1  1  -1  1  1  -1  1  -1  -1  1  1  -1  -1  1  -1  1  1  -1]
+    ];
+  
+    seq = [bseq(q+1,:), bseq(q+1,1:4) ].*seq;
+    
+    % Map into a subframe grid matrix
+    grid = [zeros(12,3),reshape(seq,12,11)];
+    
+    % Extract mapped symbols only
+    sym = grid(NbNSSSIndices(enb));
+   
+end

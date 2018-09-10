@@ -1,0 +1,45 @@
+% extract from nbiot class lib 
+% @20180621 
+
+function [indices,info] = NbNPBCHIndices(enb)
+    
+    enb = mwltelibrary('validateLTEParameters',enb,'NBRefP');
+ 
+    % Since PBSCH has a fixed schedule (subframe 0 in every frame)
+    % only return indices if in that subframe
+    if mod(enb.NSubframe,10)
+        indices = [];
+        info.Gd = 0;
+        info.G = 0;
+        return;
+    end
+    
+    % Locate max CRS locations within an LTE carrier grid
+    enb.CellRefP = 4;
+    enb.NCellID = enb.NNCellID;   
+    enb.NDLRB = 6;
+    enb.CyclicPrefix = 'Normal';
+    enb.DuplexMode = 'FDD';
+    grid = lteResourceGrid(enb);
+    grid(lteCellRSIndices(enb)) = 1;
+    
+    % Extract single resource block
+    grid = grid(1:12,:,:);
+        
+    % Locate max NRS locations
+    nbrefp = enb.NBRefP;
+    enb.NBRefP = 2;
+    grid(NbNRSIndices(enb)) = 1;
+    
+    % Find NPBSCH indices, excluding the first 3 symbols
+    indices = find(sum(grid(:,4:end,:),3)==0);
+    
+    % Expand across NB tx antenna ports, accounting for excluded symbols
+    antbase = 3*12+[0 12*14];
+    indices = indices+antbase(1:nbrefp);
+    
+    % Dimensional output (100 symbols / 200 bits for each of the 8 sub-blocks)
+    info.Gd = size(indices,1) * 8;
+    info.G = info.Gd*2;
+    
+end

@@ -1,0 +1,126 @@
+% nbiot nsss detection 
+% @ziyubiti
+% @20180629
+
+function Result = NbNsssDetectionSingleCell(dataComp,offset,info,SimPara,enb)
+
+    [NsssAll,SeqNsssAll,NsssIdx] = NbNsssAll(enb);
+
+    % 1 sf nsss calc now
+    pos_nsss_half0 = offset + info.SamplingRate/1000*9 + 1;
+    pos_nsss_half1 = pos_nsss_half0 + info.SamplingRate/100;
+    rnsss_half0 = dataComp(pos_nsss_half0:pos_nsss_half0+info.SamplingRate/1000-1,1);
+    rnsss_half1 = dataComp(pos_nsss_half1:pos_nsss_half1+info.SamplingRate/1000-1,1);
+    Pnsss_half0 = rnsss_half0.*conj(rnsss_half0);
+    Pnsss_half1 = rnsss_half1.*conj(rnsss_half1);
+
+    if (mean(Pnsss_half0(413:end,1)) >= mean(Pnsss_half1(413:end,1)))       
+        Cand_rnsss = dataComp(pos_nsss_half0-SimPara.Alg.ICS.nsss_fine_timing_WL:pos_nsss_half0+info.SamplingRate/1000-1+SimPara.Alg.ICS.nsss_fine_timing_WL,1);
+        Frame_start = 'even';
+    else
+        Cand_rnsss = dataComp(pos_nsss_half1-SimPara.Alg.ICS.nsss_fine_timing_WL:pos_nsss_half1+info.SamplingRate/1000-1+SimPara.Alg.ICS.nsss_fine_timing_WL,1);
+        Frame_start = 'odd';
+    end
+
+    grid_nsss = NbDemodulate(Cand_rnsss(1+SimPara.Alg.ICS.nsss_fine_timing_WL:end-SimPara.Alg.ICS.nsss_fine_timing_WL));
+
+    if strcmpi(SimPara.Alg.ICS.unit_test_tracking_plot,'On')
+        figure();
+        scatter(real(grid_nsss(:,4)),imag(grid_nsss(:,4)));
+        grid on;
+    end
+
+    Rsym_nsss = grid_nsss(NsssIdx);
+
+    for i = 0:503
+        xcorr = Rsym_nsss'*squeeze(NsssAll(:,:,i+1));
+        xcorr_nsss(i+1,:) =  xcorr;        
+    end
+    Pxcorr_nsss = xcorr_nsss.*conj(xcorr_nsss);
+
+    [peak, pos1] = max(reshape(Pxcorr_nsss,[],1));
+    pos2 = mod(pos1-1,504);
+    %     [peak, pos2] = max(peak1);
+    %     PeakNf = find(Pxcorr_nsss(pos2,:) == peak);
+    PeakNf = floor((pos1-1)/504)+1;
+
+
+    if strcmpi(upper(SimPara.Alg.ICS.nsss_noise_method), 'ALL')
+        noise_power_nsss = mean(mean(Pxcorr_nsss,1),2);
+        Pnsss_th = SimPara.Alg.ICS.nsss_threshold*noise_power_nsss;
+    elseif strcmpi(upper(SimPara.Alg.ICS.nsss_noise_method), 'PART')
+        Pxcortmp = reshape(Pxcorr_nsss,[],1);
+        [peaktmp1, postmp1] = max(Pxcortmp);% 1st peak
+        Pxcortmp(postmp1,1) = 0;
+        [peaktmp2, postmp2] = max(Pxcortmp);% 2st peak
+        Pxcortmp(postmp2,1) = 0;
+        noise_power_nsss = mean(Pxcortmp);
+        Pnsss_th = SimPara.Alg.ICS.nsss_threshold*noise_power_nsss;
+    end
+
+    if strcmpi(SimPara.Alg.ICS.unit_test_tracking_plot,'On')
+        figure();
+        m = 1:504;
+        stem(m,Pxcorr_nsss(:,1),'r');hold on;
+        stem(m,Pxcorr_nsss(:,2),'b');hold on;
+        stem(m,Pxcorr_nsss(:,3),'g');hold on;
+        stem(m,Pxcorr_nsss(:,4),'c');hold on;
+        plot([0 size(Pxcorr_nsss,1)],[Pnsss_th Pnsss_th],'k',[0 size(Pxcorr_nsss,1)],[noise_power_nsss noise_power_nsss],'y');
+        ylabel('Pxcor Nsss');
+    %     title([': ',]);
+        set (gcf,'Position',[380,100,400,300], 'color','w')
+        grid on;
+    end
+
+
+    Result = [];
+    if (peak >=Pnsss_th)    %  reliable cell
+        Result.detNPCI = pos2;
+        if strcmpi(Frame_start,'even')
+            Result.Frame_StartNo_Win = 2*(PeakNf-1);
+        else
+            Result.Frame_StartNo_Win = mod(2*(PeakNf-1)-1,8);
+        end
+
+        % fine timing offset and cfo estimation
+        SeqNsssL =  SeqNsssAll(:,PeakNf,pos2+1);
+        NsssL =  reshape(NsssAll(:,PeakNf,pos2+1),12,[]);
+
+        Rnsss = grid_nsss(:,[4:14],:);
+        Hls = Rnsss.*conj(NsssL);   % 2Rx to be added
+        xcorrsum = zeros(12,1);
+        for p = 2:size(Hls,2)
+            xcorr = Hls(:,p).*conj(Hls(:,p-1));
+            xcorrsum = xcorrsum + xcorr;
+        end
+
+        foe_fine = angle(sum(xcorrsum))./2.0./pi*15000*(0.9*128/137+0.1*128/138);
+        Result.foe_fine = foe_fine;
+
+        if strcmpi(SimPara.Alg.ICS.nsss_fine_timing_method,'TD')
+            for i = 1:SimPara.Alg.ICS.nsss_fine_timing_WL*2
+                xcor_fine(i,1) = Cand_rnsss(i+412:i+1920-1,1)'*SeqNsssL;
+            end
+            Pxcor_fine = xcor_fine.*conj(xcor_fine);     
+
+            if strcmpi(SimPara.Alg.ICS.unit_test_tracking_plot,'On')
+                figure();
+                stem(Pxcor_fine);
+                grid on;
+            end
+
+            [peak_fine,pos_fine] = max(Pxcor_fine);
+            offset_fine = pos_fine - SimPara.Alg.ICS.nsss_fine_timing_WL + offset - 1;   
+            Result.offset_fine = offset_fine;
+        elseif strcmpi(SimPara.Alg.ICS.nsss_fine_timing_method,'FD')                
+            q = SimPara.Alg.ICS.nsss_fine_timing_ReGap;
+            xcorr2 = Hls([1:end-q],:).*conj(Hls([q+1:end],:)); 
+            pos_fine = round(angle(sum(sum(xcorr2)))./2.0./pi/q*128);
+            Result.offset_fine = pos_fine + offset;                   
+        end
+
+    else
+        Result = [];           
+    end
+
+end

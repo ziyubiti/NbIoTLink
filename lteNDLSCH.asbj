@@ -1,0 +1,42 @@
+%lteNDLSCH NB-IoT downlink shared channel
+%   CWOUT = lteNDLSCH(OUTLEN,TRBLKIN) applies the complete NB-IoT Downlink
+%   Shared Channel (DL-SCH) transport channel coding chain to the input
+%   data TRBLKIN and returns the codeword in CWOUT. The encoding process
+%   includes type-24A CRC calculation, convolutional encoding and rate
+%   matching. The function is for a single transport block.
+%   
+%   OUTLEN is an input scalar defining the codeword length that the input
+%   transport block should be rate matched to. It represents the NPDSCH
+%   capacity for the associated codeword and therefore the length of the
+%   vector in CWOUT.
+%  
+%   TRBLKIN is an input vector containing the transport block information
+%   bits to be encoded.
+% 
+%   CWOUT is the output vector containing the DL-SCH encoded codeword.
+%
+%   Example:
+%   % Generates 960 DL-SCH codeword bits with a transport block with size
+%   % 208.
+%   
+%   trblklen = 208;
+%   outlen = 960;
+%   trblkin = randi([0 1],trblklen,1);
+%   cw = lteNDLSCH(outlen,trblkin);
+%
+%   See also lteNDLSCHDecode, lteNPDSCH, lteDLSCH.
+
+%   Copyright 2017 The MathWorks, Inc.
+
+function cwout = lteNDLSCH(outlen,trblkin)
+    
+    % Transport block CRC attachment
+    crced = lteCRCEncode(trblkin,'24A');
+    
+    % Convolutional coding is used for NB-IoT DL-SCH
+    coded = lteConvolutionalEncode(crced);
+    
+    % Rate matching
+    cwout = lteRateMatchConvolutional(coded,outlen);
+    
+end

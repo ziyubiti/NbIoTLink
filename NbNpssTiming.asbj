@@ -1,0 +1,140 @@
+% nbiot npss timing detection 
+% @ziyubiti
+% @20180628
+
+function [offset,foe_coarse] = NbNpssTiming(bufferIQ,info,SimPara,enb)
+
+    [seq,seqdw] = NbNpssSeq(enb);
+    
+    if (SimPara.Alg.ICS.npss_detect_method == 0)    
+        Pxcor = [];
+        PxcorSum = [];
+        
+        Ncand = SimPara.Alg.ICS.npss_ml_freq_max/SimPara.Alg.ICS.npss_ml_freq_step*2+1;
+        
+        for n = 1:Ncand
+            cnadCFO = -SimPara.Alg.ICS.npss_ml_freq_max + SimPara.Alg.ICS.npss_ml_freq_step*(n-1);
+            comp_phase = exp(j*2*pi*cnadCFO./info.SamplingRate.*(0:size(bufferIQ,1)-1));
+            tmpIQ = bufferIQ .*comp_phase.';
+            xcor = CircleCorr(tmpIQ.',seq.');
+            Pxcor(n,:) = abs(xcor).*abs(xcor);
+
+            PxcorSum(:,n) = (sum(reshape(Pxcor(n,:),info.SamplingRate/100,[]),2));   
+        end
+        
+        PxcorSum = PxcorSum.';
+
+        if strcmpi(SimPara.Alg.ICS.unit_test_tracking_plot,'On')
+            figure();
+            stem(Pxcor(n,:));
+            grid on;
+
+            figure();
+            stem(PxcorSum(171,:));
+            grid on;
+        end
+        
+        [peak1, pos1] = max(PxcorSum,[],2);
+        [peak, pos2] = max(peak1);
+        PeakPos = find(PxcorSum(pos2,:) == peak) ;
+        
+        if strmcmpi(upper(SimPara.Alg.ICS.npss_noise_method), 'ALL')
+            noise_power_npss = mean(PxcorSum(pos2,:));
+            Pnpss_th = SimPara.Alg.ICS.npss_threshold*noise_power_npss;
+        elseif strmcmpi(upper(SimPara.Alg.ICS.npss_noise_method), 'PART')
+            Pxcortmp = PxcorSum(pos2,:);
+            [peaktmp1, postmp1] = max(Pxcortmp);% 1st peak
+            Pxcortmp(1,postmp1) = 0;
+            [peaktmp2, postmp2] = max(Pxcortmp);% 2st peak
+            Pxcortmp(1,postmp2) = 0;
+            noise_power_npss = mean(PxcorSum(pos2,:));
+            Pnpss_th = SimPara.Alg.ICS.npss_threshold*noise_power_npss;
+        end
+        
+        if (peak >=Pnpss_th)
+            offset = PeakPos - (info.SamplingRate/1000*5 + info.Nfft*3 + sum(info.CyclicPrefixLengths(1:3))+1);
+            foe_coarse = -SimPara.Alg.ICS.npss_ml_freq_max + SimPara.Alg.ICS.npss_ml_freq_step*(pos2-1);
+        else
+            offset = [];
+            foe_coarse = [];
+            peak = [];
+        end
+        
+        
+    elseif (SimPara.Alg.ICS.npss_detect_method == 1)        
+        coe = SimPara.Alg.ICS.coee61;
+        filterIQ = conv(bufferIQ,coe);        
+        groupdelay = floor(length(coe)/2);
+        bufferIQ = filterIQ(groupdelay+1:end-groupdelay);
+        DwData = resample(bufferIQ,1,8);
+        
+        Pxcor = [];
+        PxcorSum = [];
+        Ncand = SimPara.Alg.ICS.npss_ml_freq_max/SimPara.Alg.ICS.npss_ml_freq_step*2+1;
+        
+        for n = 1:Ncand
+            cnadCFO = -SimPara.Alg.ICS.npss_ml_freq_max + SimPara.Alg.ICS.npss_ml_freq_step*(n-1);
+            comp_phase = exp(j*2*pi*cnadCFO*SimPara.Alg.ICS.npss_detect_dwRatio./info.SamplingRate.*(0:size(DwData,1)-1));
+            tmpIQ = DwData .*comp_phase.';
+            xcor = CircleCorr(tmpIQ.',seqdw.');
+            Pxcor(n,:) = abs(xcor).*abs(xcor);        
+            PxcorSum(:,n) = (sum(reshape(Pxcor(n,:),info.SamplingRate/100/SimPara.Alg.ICS.npss_detect_dwRatio,[]),2));   
+        end
+        
+        PxcorSum = PxcorSum.';
+        
+        if strcmpi(SimPara.Alg.ICS.unit_test_tracking_plot,'On')
+            figure();
+            stem(Pxcor(171,:));
+            grid on;
+
+            figure();
+            stem(PxcorSum(171,:));
+            grid on;   
+        end
+        
+        [peak1, pos1] = max(PxcorSum,[],2);
+        [peak, pos2] = max(peak1);
+        PeakPos = find(PxcorSum(pos2,:) == peak) ;
+        
+        if strcmpi(upper(SimPara.Alg.ICS.npss_noise_method), 'ALL')
+            noise_power_npss = mean(PxcorSum(pos2,:));
+            Pnpss_th = SimPara.Alg.ICS.npss_threshold*noise_power_npss;
+        elseif strcmpi(upper(SimPara.Alg.ICS.npss_noise_method), 'PART')
+            Pxcortmp = PxcorSum(pos2,:);
+            [peaktmp1, postmp1] = max(Pxcortmp);% 1st peak
+            Pxcortmp(1,postmp1) = 0;
+            [peaktmp2, postmp2] = max(Pxcortmp);% 2st peak
+            Pxcortmp(1,postmp2) = 0;
+            noise_power_npss = mean(Pxcortmp);
+            Pnpss_th = SimPara.Alg.ICS.npss_threshold*noise_power_npss;
+        end
+        
+        if (peak >=Pnpss_th)
+            offset = (PeakPos-1)*SimPara.Alg.ICS.npss_detect_dwRatio+1 - (info.SamplingRate/1000*5 + info.Nfft*3 + sum(info.CyclicPrefixLengths(1:3))+1);;
+            foe_coarse = -SimPara.Alg.ICS.npss_ml_freq_max + SimPara.Alg.ICS.npss_ml_freq_step*(pos2-1);
+        else
+            offset = [];
+            foe_coarse = [];
+            peak = [];
+        end
+        
+        if strcmpi(SimPara.Alg.ICS.unit_test_tracking_plot,'On')
+            figure();
+            stem(PxcorSum(pos2,:));      grid on; hold on;
+            plot([0 size(PxcorSum,2)],[Pnpss_th Pnpss_th],'c',[0 size(PxcorSum,2)],[noise_power_npss noise_power_npss],'r');
+            ylabel('Pxcor combine');
+            title(['foe coarse: ',int2str(foe_coarse)]);
+            set (gcf,'Position',[380,100,400,300], 'color','w')
+        end
+        
+        
+    elseif (SimPara.Alg.ICS.npss_detect_method == 2)
+        % TBC
+        
+    elseif (SimPara.Alg.ICS.npss_detect_method == 3)
+        % TBC
+    end
+        
+
+end

@@ -1,0 +1,72 @@
+% nbiot simulation and algrithm para set 
+% @ziyubiti
+% @20180621 
+
+function SimPara = SimParaSet()
+
+SimPara = [];
+%% stat para
+SimPara.Stat.NumFrames = 1;
+SimPara.Stat.Sinr = 10.0;     
+SimPara.Stat.PbchDetEnable = 'On';
+
+%% SimPara.channel para
+SimPara.channel.Seed = 10;                   % Random SimPara.channel seed
+SimPara.channel.NRxAnts = 1;                 % 1 receive antennas
+SimPara.channel.DelayProfile = 'Off';%'ETU';        % Delay profile
+SimPara.channel.DopplerFreq = 70;            % Doppler frequency
+SimPara.channel.MIMOCorrelation = 'Low';     % Multi-antenna correlation
+SimPara.channel.NTerms = 16;                 % Oscillators used in fading model
+SimPara.channel.ModelType = 'GMEDS';         % Rayleigh fading model type
+SimPara.channel.InitPhase = 'Random';        % Random initial phases
+SimPara.channel.NormalizePathGains = 'On';   % Normalize delay profile power  
+SimPara.channel.NormalizeTxAnts = 'On';      % Normalize for transmit antennas
+
+
+nbInfo = lteNbiotInfo();
+SimPara.channel.SamplingRate = nbInfo.SamplingRate;
+
+
+%% ICS para
+SimPara.Alg.ICS.ICS_enable = 'On'; 
+SimPara.Alg.ICS.buffer_window_lenth = 10;           % subframe/ms 
+SimPara.Alg.ICS.npss_detect_method = 1;             % 0:baseline-ML,1.92,xcorr-sf; 1:lowUE-ML,240k,xcorr-sf; 2:QC-opt,1.92M,auto-xcorr-symbol; 3: QC, 240k,auto-xcorr-symbol;    
+SimPara.Alg.ICS.npss_detect_dwRatio = 8;            % only for 240k
+SimPara.Alg.ICS.max_cell_count = 1;                 % single cell, multi-cell
+SimPara.Alg.ICS.npss_ml_freq_step = 150;            % Hz
+SimPara.Alg.ICS.npss_ml_freq_max  = 25500;          % GSM 900MHz,20ppm
+SimPara.Alg.ICS.dw_filter_method = 'FIR';               % HB,FIR   for 3HB¡¢1FIR_R8
+SimPara.Alg.ICS.npss_noise_method = 'ALL'            % ALL¡¢PART  £¬ for theresold calc
+SimPara.Alg.ICS.nsss_noise_method = 'PART'           % ALL¡¢PART  £¬ for theresold calc
+SimPara.Alg.ICS.npss_freqoffset_comp_flag = 1;       %  
+
+SimPara.Alg.ICS.TDdata_comb_flag = 0;
+SimPara.Alg.ICS.split_xcorr_flag = 0;                % valid for npss
+SimPara.Alg.ICS.npss_slidewindow_xcorr_flag = 10;     % slide window norm xcorr : 0/10/11¡£
+SimPara.Alg.ICS.npss_timing_slide_WL = 64;
+SimPara.Alg.ICS.npss_threshold = 8;                  % 8;
+SimPara.Alg.ICS.nsss_threshold = 6;                  % 6;
+SimPara.Alg.ICS.nsss_fine_timing_method = 'TD';     % TD,FD        
+SimPara.Alg.ICS.nsss_fine_timing_WL = 10;           % Ts 
+SimPara.Alg.ICS.nsss_fine_timing_ReGap = 6;         % 
+SimPara.Alg.ICS.unit_test_tracking_plot = 'On';     
+
+coe = load('HBF.mat');                          
+SimPara.Alg.ICS.coee65 = coe.coee_65;                                %  coee_65£¬HBF
+clear coe;
+
+coe = load('FIR_LPF.mat');
+SimPara.Alg.ICS.coee61 = coe.fir_lpf;                                %  hw lpf,
+clear coe;
+
+%% CEC
+SimPara.Alg.CEC.PilotAverage = 'UserDefined';   % Type of pilot symbol averaging
+SimPara.Alg.CEC.FreqWindow = 9;                 % Frequency window size
+SimPara.Alg.CEC.TimeWindow = 9;                 % Time window size
+SimPara.Alg.CEC.InterpType = 'Cubic';           % 2D interpolation type
+SimPara.Alg.CEC.InterpWindow = 'Centered';      % Interpolation window type
+SimPara.Alg.CEC.InterpWinSize = 1;              % Interpolation window size
+SimPara.Alg.CEC.Reference = 'NRS';             % Reference for channel estimation
+             
+
+end

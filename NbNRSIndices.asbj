@@ -1,0 +1,195 @@
+%lteNRSIndices NRS resource element indices
+%   IND = lteNRSIndices(...) returns the resource element (RE) indices
+%   for the Narrowband Reference Signal (NRS). By default, the indices are
+%   returned in 1-based linear indexing form that can directly index
+%   elements of a three dimensional array representing the subframe
+%   resource grid for all antenna ports. These indices are ordered as the
+%   reference signal modulation symbols should be mapped. Alternative
+%   indexing formats can also be generated. The indices for multiple
+%   antennas are concatenated into a single column rather than returned in
+%   a matrix with a column for each antenna.
+%
+%   IND = lteNRSIndices(ENB) returns a column vector of RE indices for
+%   cell wide settings in structure ENB:
+%   NNCellID  - Narrowband physical layer cell identity
+%   NBRefP    - Number of narrowband reference signal antenna ports
+%               (1,2)
+%
+%   IND = lteNRSIndices(ENB,PORTS) returns a column vector of RE indices
+%   for antenna ports specified in the vector PORTS (0,1) and cell wide
+%   settings structure ENB defined above. In this case, NBRefP is ignored
+%   if present in ENB and PORTS is used instead. PORTS 0 and 1 stand for
+%   NRS antenna ports 2000 and 2001, respectively.
+%
+%   IND = lteNRSIndices(ENB,OPTS) returns a column vector of RE indices for
+%   cell wide settings in structure ENB defined above, and allows the
+%   control of the contents and format of the returned indices through a
+%   space-separated list, string array or cell array of options, OPTS:
+%   'ind', 'sub'       - Linear (default) or subscript 
+%                        [subcarrier, symbol, port] respectively
+%   '1based', '0based' - 1-based (default) or 0-based
+%
+%   IND = lteNRSIndices(ENB,PORTS,OPTS) returns a column vector of RE
+%   indices for antenna ports specified in the vector PORTS (0,1), cell
+%   wide settings structure ENB defined above, and allows the control of
+%   the contents and format of the returned indices through a
+%   space-separated list, string array or cell array OPTS defined above.
+%   
+%   Example:
+%   % Generate 0-based narrowband reference signal RE indices in subscript
+%   % form for antenna port 1. Each row of the generated matrix has three
+%   % columns representing [subcarrier, symbol, antenna port].
+%
+%   enb.NNCellID = 10;
+%   enb.NBRefP = 2;
+%   ind = lteNRSIndices(enb,1,{'0based','sub'})
+% 
+%   % The above example returns: 
+%   %             1            5           1
+%   %             7            5           1
+%   %             4            6           1
+%   %            10            6           1
+%   %             1           12           1
+%   %             7           12           1
+%   %             4           13           1
+%   %            10           13           1
+%   
+%   See also lteCellRSIndices
+
+%   Copyright 2017 The MathWorks, Inc.
+
+function ind = NbNRSIndices(enb,varargin)
+
+    % Validate the number of input arguments
+    narginchk(1, 3); 
+    
+    % Validate the inputs
+    enb = mwltelibrary('validateLTEParameters',enb,'NBRefP','NNCellID');
+    
+    if nargin == 1
+        if enb.NBRefP == 1
+            ports = 0;
+        else
+            ports = [0 1];
+        end
+        opts = {};
+    else
+        if isnumeric(varargin{1}) % In the case that the second input is ports
+            ports = varargin{1};
+            ports = round(ports);
+            if nargin == 2
+                opts = {};
+            else
+                opts = varargin{2};
+            end
+        else % In the case that the second input is opts
+            if enb.NBRefP == 1
+                ports = 0;
+            else
+                ports = [0 1];
+            end
+            opts = varargin{1};
+        end
+    end
+    
+    % Validate the selected ports
+    if iscolumn(ports)
+        ports = ports.';
+    end
+    for n=1:length(ports)
+        if ~(ports(n)>=0 && ports(n)<=1)
+            error('lte:error','The input ports (%d) should be within [0, 1].',ports(n));
+        end
+    end
+
+    NDLsymb = 7; % Number of OFDM symbols per slot
+    nre = 12;    % Number of REs per OFDM symbol
+
+    v_shft = mod(enb.NNCellID,6);
+
+    % 0-based RE and symbol indices 
+    reIdxMat(:,1) =  (mod(v_shft,6):6:nre-1).';
+    reIdxMat(:,2) =  (mod(3+v_shft,6):6:nre-1).';
+    symIdxVec = [5;6;12;13]; % symbol indices for any port
+
+    % AP 2000
+    % 1st OFDM symbol in the 1st slot
+    indSym1 = reIdxMat(:,1) + nre*symIdxVec(1);
+    % 2nd OFDM symbol in the 1st slot
+    indSym2 = reIdxMat(:,2) + nre*symIdxVec(2);
+    % 1st OFDM symbol in the 2nd slot
+    indSym3 = reIdxMat(:,1) + nre*symIdxVec(3);
+    % 2nd OFDM symbol in the 2nd slot
+    indSym4 = reIdxMat(:,2) + nre*symIdxVec(4);
+    % NRS indices for the subframe
+    indicesAp2000 = [indSym1; indSym2; indSym3; indSym4];
+
+    % AP 2001
+    % 1st OFDM symbol in the 1st slot
+    indSym1 = reIdxMat(:,2) + nre*symIdxVec(1) + 2*NDLsymb*nre;
+    % 2nd OFDM symbol in the 1st slot
+    indSym2 = reIdxMat(:,1) + nre*symIdxVec(2) + 2*NDLsymb*nre;
+    % 1st OFDM symbol in the 2nd slot
+    indSym3 = reIdxMat(:,2) + nre*symIdxVec(3) + 2*NDLsymb*nre;
+    % 2nd OFDM symbol in the 2nd slot
+    indSym4 = reIdxMat(:,1) + nre*symIdxVec(4) + 2*NDLsymb*nre;
+    % NRS indices for the subframe
+    indicesAp2001 = [indSym1; indSym2; indSym3; indSym4];
+
+    ind = [];
+    for port = ports
+        if port == 0 % port 2000
+            ind = cat(1,ind,indicesAp2000);
+        elseif port == 1 % port 2001
+            ind = cat(1,ind,indicesAp2001);
+        end
+    end
+
+    ind = ind + 1; % Convert 0based to 1based indices
+
+    tpsize = [nre NDLsymb*2 enb.NBRefP];
+    
+    % Process the options, if present
+    if nargin>1
+
+        % Define the character vector sets that define the options
+        % Each row contains the character vectors for a single option
+        s = {'ind','sub';'1based','0based'};
+
+        % Ensure that all the input options are contained 
+        % in a single space separated character vector
+        if iscell(opts)
+            sopts = sprintf('%s ',opts{:});
+        else
+            if isstring(opts)
+                % String input support
+                sopts = [];
+                for i = 1:length(opts)
+                    sopts = [sopts,char(opts(i)),' ']; %#ok<AGROW>
+                end
+            else
+                sopts = opts;
+            end
+        end
+
+        % Find the selected options
+        V = regexpi(sopts,s,'once');
+        [V{cellfun('isempty',V)}] = deal(length(sopts)+1);
+        [~,I] = min(cell2mat(V),[],2);
+        selected = s(sub2ind(size(s),1:size(s),I'));
+
+        % If signaled by 'sub', turn the default linear indices into
+        % subscripts
+        if strcmp(selected(1),'sub')
+            [subs{1:3}] = ind2sub(tpsize,ind(:));
+            ind = cell2mat(subs);
+        end
+        % If signaled by '0based', turn the default 1-based indices/sub
+        % into 0-based ones
+        if strcmp(selected(2),'0based')
+            ind = ind-1;
+        end
+
+    end
+     
+end
